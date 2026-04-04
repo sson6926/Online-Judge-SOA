@@ -1,3 +1,29 @@
 spring:
   application:
     name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: problem-service
+          uri: lb://problem-service
+          predicates:
+            - Path=/api/problems/**
+          filters:
+            - StripPrefix=1
+
+        - id: submission-service
+          uri: lb://submission-service
+          predicates:
+            - Path=/api/submissions/**
+          filters:
+            - StripPrefix=1
+
+server:
+  port: 8000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka}
+    register-with-eureka: true
+    fetch-registry: true
