@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: Problem Service API
+  description: Quản lý bài toán và các bộ testcases cho hệ thống Online Judge.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5001
+    description: Development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Kiểm tra tình trạng hoạt động của dịch vụ.
+      responses:
+        '200':
+          description: Dịch vụ đang hoạt động bình thường
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /problems:
+    get:
+      summary: Lấy danh sách bài toán
+      responses:
+        '200':
+          description: Danh sách bài tập tối giản (chủ yếu là metadata)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProblemMetadata'
+
+  /problems/{id}:
+    get:
+      summary: Lấy chi tiết một bài toán
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chi tiết bài tập bao gồm đề bài và các ví dụ (samples)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '404':
+          description: Không tìm thấy bài tập
+
+  /problems/internal/{id}/testcases:
+    get:
+      summary: "| INTERNAL | Lấy danh sách URL các file testcase cho Judge Worker"
+      description: Chỉ cho phép các dịch vụ nội bộ truy cập
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Danh sách các URL tải file testcase (.txt) trực tiếp từ S3/Minio
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  problemId:
+                    type: string
+                    format: uuid
+                  testcases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TestCaseURL'
+        '403':
+          description: Forbidden - Nếu request đến từ ngoài Gateway
+
+components:
+  schemas:
+    ProblemMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        difficulty:
+          type: string
+          enum: [EASY, MEDIUM, HARD]
+        tags:
+          type: array
+          items:
+            type: string
+
+    ProblemDetail:
+      allOf:
+        - $ref: '#/components/schemas/ProblemMetadata'
+        - type: object
+          properties:
+            description:
+              type: string
+            timeLimitMs:
+              type: integer
+            memoryLimitKb:
+              type: integer
+            samples:
+              type: array
+              items:
+                type: object
+                properties:
+                  input:
+                    type: string
+                  output:
+                    type: string
+
+    TestCaseURL:
+      type: object
+      properties:
+        inputUrl:
+          type: string
+          format: uri
+        outputUrl:
+          type: string
+          format: uri
+        weight:
+          type: integer
+          default: 1

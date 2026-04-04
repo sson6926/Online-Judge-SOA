@@ -1,0 +1,57 @@
+package com.shawnix.submission.service;
+
+import com.shawnix.submission.config.RabbitMQConfig;
+import com.shawnix.submission.model.Submission;
+import com.shawnix.submission.repository.SubmissionRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class SubmissionServiceImpl implements SubmissionService {
+
+    private final SubmissionRepository submissionRepository;
+    private final RabbitTemplate rabbitTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    private static final String REDIS_SUBMISSION_PREFIX = "submission:";
+
+    @Override
+    @Transactional
+    public Submission submit(Submission submission) {
+        // 1. Initial status
+        submission.setStatus(Submission.Status.PENDING);
+        
+        // 2. Save to DB
+        Submission saved = submissionRepository.save(submission);
+        
+        // 3. Save to Redis for polling (10 minutes TTL)
+        redisTemplate.opsForValue().set(REDIS_SUBMISSION_PREFIX + saved.getId(), saved, 10, TimeUnit.MINUTES);
+        
+        // 4. Send to MQ for the Judge Worker
+        rabbitTemplate.convertAndSend(RabbitMQConfig.JOB_QUEUE, saved);
+        
+        log.info("Nộp bài thành công (ID: {}), gửi sang Queue.", saved.getId());
+        return saved;
+    }
+
+    @Override
+    public Submission getSubmissionById(UUID id) {
+        // 1. Check Redis first
+        Submission cached = (Submission) redisTemplate.opsForValue().get(REDIS_SUBMISSION_PREFIX + id);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // 2. Fallback to DB
+        return submissionRepository.findById(id).orElse(null);
+    }
+}
