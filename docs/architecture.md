@@ -12,7 +12,7 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 | **Event-driven** | ✅ | Sử dụng RabbitMQ cho cả luồng nộp bài (Job Queue) và luồng trả kết quả (Result Queue) để đạt được sự mất liên kết (Decoupling) hoàn toàn. |
 | **Bulkhead** | ✅ | Áp dụng tại Judge Service để giới hạn số lượng bài chấm đồng thời, bảo vệ máy chủ vật lý. |
 | **Circuit Breaker** | ✅ | Bảo vệ Judge Service khỏi các sự cố khi gọi Problem Service lấy Metadata testcases. |
-| **Service Discovery** | ✅ | Sử dụng cơ chế Server-side Discovery thông qua Docker Internal DNS, cho phép các dịch vụ tự động tìm thấy nhau bằng tên định danh. |
+| **Service Discovery** | ✅ | Sử dụng Eureka Server (Spring Cloud Netflix) để đăng ký và khám phá dịch vụ động; các service gọi nhau qua service-id thay vì hardcode host/port. |
 | **Local Disk Caching** | ✅ | Lưu trữ testcases ngay trên Worker Disk để tối ưu hiệu năng nạp dữ liệu (Shortcut cho Cache HIT). |
 | **Idempotency** | ✅ | Đảm bảo tính toàn vẹn dữ liệu khi xử lý bản tin từ hàng đợi, ngăn chặn nộp bài 1 lần ra 2 kết quả. |
 | **Saga Pattern** | ❌ | Không lựa chọn vì nghiệp vụ cập nhật trạng thái bài nộp đơn giản, sử dụng Eventual Consistency và Idempotency mang lại hiệu năng cao hơn gấp nhiều lần. |
@@ -28,7 +28,8 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 | Component     | Responsibility | Tech Stack      | Port  |
 |---------------|----------------|-----------------|-------|
 | **Frontend**  | Giao diện soạn thảo (Monaco) & Xem bài | React / Next.js | 3000 |
-| **Gateway**   | Định tuyến, Xác thực JWT & Rate Limiting | NGINX / Gateway | 8080 |
+| **Gateway**   | Định tuyến, Xác thực JWT & Rate Limiting | Spring Boot + Spring Cloud Gateway | 8080 |
+| **Service Discovery** | Đăng ký dịch vụ và tra cứu service instances | Spring Boot + Eureka Server | 8761 |
 | **Problem Service**| Quản lý dữ liệu đề bài và các file testcases (.txt) | Java | 5001 |
 | **Submission Service**  | Tiếp nhận bài nộp & Lắng nghe Result Queue | Java | 5002 |
 | **Judge Service** | Worker lấy bài từ Queue & Chấm bài | Java / Docker| - |
