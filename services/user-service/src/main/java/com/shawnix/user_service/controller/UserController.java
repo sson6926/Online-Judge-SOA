@@ -3,6 +3,7 @@ package com.shawnix.user_service.controller;
 import com.shawnix.user_service.dto.SignupRequest;
 import com.shawnix.user_service.dto.LoginRequest;
 import com.shawnix.user_service.dto.LoginResponse;
+import com.shawnix.user_service.dto.UpdateUserRequest;
 import com.shawnix.user_service.dto.UserResponse;
 import com.shawnix.user_service.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +61,23 @@ public class UserController {
             return ResponseEntity.ok(user);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * Update Profile: Cập nhật thông tin profile của user
+     * PUT /users/{id}
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<UserResponse> updateUserProfile(
+        @PathVariable UUID id,
+        @RequestBody UpdateUserRequest request
+    ) {
+        try {
+            UserResponse user = userService.updateUserProfile(id, request);
+            return ResponseEntity.ok(user);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 }

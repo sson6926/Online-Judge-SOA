@@ -1,6 +1,8 @@
 package com.shawnix.user_service.service;
 
+import com.shawnix.user_service.dto.LoginRequest;
 import com.shawnix.user_service.dto.SignupRequest;
+import com.shawnix.user_service.dto.UpdateUserRequest;
 import com.shawnix.user_service.dto.UserResponse;
 import com.shawnix.user_service.entity.User;
 import com.shawnix.user_service.entity.UserRole;
@@ -12,62 +14,74 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    
-    /**
-     * Tạo tài khoản người dùng mới (Signup)
-     */
+
+
     public UserResponse createUser(SignupRequest request) {
-        // Check duplicate username
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {
             throw new RuntimeException("Username already exists");
         }
-        
-        // Check duplicate email
+
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
             throw new RuntimeException("Email already exists");
         }
-        
-        // Create new user
+
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(UserRole.STUDENT);  // Default role
-        
+
         User savedUser = userRepository.save(user);
         return mapToResponse(savedUser);
     }
-    
-    /**
-     * Xác thực người dùng (Login)
-     */
-    public UserResponse authenticateUser(com.shawnix.user_service.dto.LoginRequest request) {
+
+    public UserResponse authenticateUser(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
             .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new RuntimeException("Invalid password");
         }
-        
+
         return mapToResponse(user);
     }
-    
-    /**
-     * Lấy thông tin profile của user
-     */
+
+
     public UserResponse getUserProfile(java.util.UUID userId) {
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         return mapToResponse(user);
     }
-    
-    /**
-     * Helper: Convert User entity to UserResponse DTO
-     */
+
+
+    public UserResponse updateUserProfile(java.util.UUID userId, UpdateUserRequest request) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (request.getUsername() != null && !request.getUsername().isBlank()) {
+            if (!request.getUsername().equals(user.getUsername())
+                && userRepository.findByUsername(request.getUsername()).isPresent()) {
+                throw new RuntimeException("Username already exists");
+            }
+            user.setUsername(request.getUsername());
+        }
+
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            if (!request.getEmail().equals(user.getEmail())
+                && userRepository.findByEmail(request.getEmail()).isPresent()) {
+                throw new RuntimeException("Email already exists");
+            }
+            user.setEmail(request.getEmail());
+        }
+
+        return mapToResponse(userRepository.save(user));
+    }
+
+
     private UserResponse mapToResponse(User user) {
         return new UserResponse(
             user.getId(),
