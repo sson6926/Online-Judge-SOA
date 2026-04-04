@@ -1,6 +1,8 @@
 package com.shawnix.user_service.controller;
 
 import com.shawnix.user_service.dto.SignupRequest;
+import com.shawnix.user_service.dto.LoginRequest;
+import com.shawnix.user_service.dto.LoginResponse;
 import com.shawnix.user_service.dto.UserResponse;
 import com.shawnix.user_service.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,22 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.CREATED).body(user);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+    
+    /**
+     * Login: Xác thực người dùng
+     * POST /users/login
+     */
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
+        try {
+            UserResponse user = userService.authenticateUser(request);
+            LoginResponse response = new LoginResponse();
+            response.setUser(user);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
     }
 }

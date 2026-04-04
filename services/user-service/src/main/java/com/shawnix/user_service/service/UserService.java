@@ -42,6 +42,20 @@ public class UserService {
     }
     
     /**
+     * Xác thực người dùng (Login)
+     */
+    public UserResponse authenticateUser(com.shawnix.user_service.dto.LoginRequest request) {
+        User user = userRepository.findByUsername(request.getUsername())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            throw new RuntimeException("Invalid password");
+        }
+        
+        return mapToResponse(user);
+    }
+    
+    /**
      * Helper: Convert User entity to UserResponse DTO
      */
     private UserResponse mapToResponse(User user) {
