@@ -19,8 +19,8 @@ services:
     ports:
       - "${GATEWAY_PORT:-8080}:8000"
     depends_on:
-      - service-a
-      - service-b
+      - problem-service
+      - submission-service
     networks:
       - app-network
 
