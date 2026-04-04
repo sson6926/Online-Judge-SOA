@@ -1,8 +1,14 @@
-# Service A — Dockerfile
-# Replace with your actual setup.
-# See .ai/prompts/create-dockerfile.md for templates (Node.js, Python, Java, Go, .NET).
-#
-# Requirements: expose port 5000, implement GET /health endpoint.
+# Stage 1: Build
+FROM maven:3.9.6-eclipse-temurin-17-alpine AS build
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline
+COPY src ./src
+RUN mvn package -DskipTests
 
-# TODO: Replace with your actual Dockerfile.
-FROM scratch
+# Stage 2: Run
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+COPY --from=build /app/target/*.jar app.jar
+EXPOSE 5001
+ENTRYPOINT ["java", "-jar", "app.jar"]
