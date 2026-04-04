@@ -29,10 +29,10 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 |---------------|----------------|-----------------|-------|
 | **Frontend**  | Giao diện soạn thảo (Monaco) & Xem bài | React / Next.js | 3000 |
 | **Gateway**   | Định tuyến, Xác thực JWT & Rate Limiting | NGINX / Gateway | 8080 |
-| **Problem Service**| Quản lý dữ liệu đề bài và Metadata ZIP | Java | 5001 |
-| **Submission Service**  | Tiếp nhận bài nộp & Lắng nghe Result Queue | Python | 5002 |
+| **Problem Service**| Quản lý dữ liệu đề bài và các file testcases (.txt) | Java | 5001 |
+| **Submission Service**  | Tiếp nhận bài nộp & Lắng nghe Result Queue | Java | 5002 |
 | **Judge Service** | Worker lấy bài từ Queue & Chấm bài | Java / Docker| - |
-| **Storage (S3)**| Lưu trữ tập trung các bộ Testcases ZIP | Minio / AWS S3 | 9000 |
+| **Storage (S3)**| Lưu trữ tập trung các file Testcases văn bản thô | Minio / AWS S3 | 9000 |
 | **RabbitMQ** | Hệ thống truyền tin bất đồng bộ (2 Queues) | RabbitMQ | 5672 |
 
 ---
@@ -40,18 +40,16 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 ## 3. Communication Matrix
 *Cập nhật luồng giao tiếp giảm thiểu gọi trực tiếp giữa các Microservices.*
 
-| From → To     | Problem Servive | Submission Servive | Judge Servive | Gateway | Storage | MQ |
+| From → To     | Problem Service | Submission Service | Judge Service | Gateway | Storage | MQ |
 |---------------|-----------|-----------|---------|----------| --- | --- |
 | **Frontend**  | ❌ (Qua GW) | ❌ (Qua GW) | ❌ | ✅ | ❌ | ❌ |
 | **Gateway**   | ✅ (REST) | ✅ (REST) | ❌ | - | ❌ | ❌ |
-| **Sub. Servive**  | ✅ (REST) | - | ❌ | ❌ | ❌ | ✅ (Post/Listen) |
-| **Judge Servive** | ✅ (via CB) | ❌ | - | ❌ | ✅ (Download) | ✅ (Post/Listen) |
+| **Sub. Service**  | ✅ (REST) | - | ❌ | ❌ | ❌ | ✅ (Post/Listen) |
+| **Judge Service** | ✅ (via CB) | ❌ | - | ❌ | ✅ (Download) | ✅ (Post/Listen) |
 
 ---
 
 ## 4. Architecture Diagram
-
-
 
 ```mermaid
 graph TD
@@ -82,10 +80,6 @@ graph TD
             PS --> DB_PROB
         end
 
-    
-
-
-        
     
 
     %% ================= MESSAGING =================
@@ -149,7 +143,7 @@ graph TD
 
 ### 6.2 What happens when a service goes down?
 - **Isolation (Buffer):** Nếu Judge Service tạm dừng, Submission Service vẫn tiếp nhận bài nộp và lưu trữ an toàn trong Message Queue. Khi Judge Service "sống lại", nó sẽ xử lý nốt các công việc tồn đọng mà không làm mất dữ liệu của người dùng.
-- **Cascading Failure Prevention:** Nhờ Circuit Breaker, nếu một dịch vụ cấp thấp (như Problem Servive) sập, nó sẽ không kéo sập các dịch vụ cấp cao (Judge Servive) thông qua hiện tượng nghẽn thread.
+- **Cascading Failure Prevention:** Nhờ Circuit Breaker, nếu một dịch vụ cấp thấp (như Problem Service) sập, nó sẽ không kéo sập các dịch vụ cấp cao (Judge Service) thông qua hiện tượng nghẽn thread.
 
 ### 6.3 Are there retry mechanisms or circuit breakers?
 - **Retry & DLQ:** Hệ thống áp dụng cơ chế thử lại tại hàng đợi. Những bản tin lỗi liên tục sẽ được đưa vào Dead Letter Queue để hậu kiểm, tránh việc làm tắc nghẽn luồng xử lý chính.
