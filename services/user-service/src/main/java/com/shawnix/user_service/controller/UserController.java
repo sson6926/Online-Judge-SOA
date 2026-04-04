@@ -10,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
@@ -44,6 +46,20 @@ public class UserController {
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+    }
+    
+    /**
+     * Get Profile: Lấy thông tin profile của user
+     * GET /users/{id}
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<UserResponse> getUserProfile(@PathVariable UUID id) {
+        try {
+            UserResponse user = userService.getUserProfile(id);
+            return ResponseEntity.ok(user);
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 }

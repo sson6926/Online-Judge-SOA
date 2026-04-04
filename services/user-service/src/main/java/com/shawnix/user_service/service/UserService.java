@@ -56,6 +56,16 @@ public class UserService {
     }
     
     /**
+     * Lấy thông tin profile của user
+     */
+    public UserResponse getUserProfile(java.util.UUID userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        return mapToResponse(user);
+    }
+    
+    /**
      * Helper: Convert User entity to UserResponse DTO
      */
     private UserResponse mapToResponse(User user) {
