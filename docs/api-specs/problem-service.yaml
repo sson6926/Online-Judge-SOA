@@ -11,7 +11,6 @@ paths:
   /health:
     get:
       summary: Health check
-      description: Kiểm tra tình trạng hoạt động của dịch vụ.
       responses:
         '200':
           description: Dịch vụ đang hoạt động bình thường
@@ -23,19 +22,22 @@ paths:
                   status:
                     type: string
                     example: ok
+                  service:
+                    type: string
+                    example: problem-service
 
   /problems:
     get:
       summary: Lấy danh sách bài toán
       responses:
         '200':
-          description: Danh sách bài tập tối giản (chủ yếu là metadata)
+          description: Danh sách bài toán
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ProblemMetadata'
+                  $ref: '#/components/schemas/Problem'
 
   /problems/{id}:
     get:
@@ -49,17 +51,17 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Chi tiết bài tập bao gồm đề bài và các ví dụ (samples)
+          description: Chi tiết bài toán
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/Problem'
         '404':
-          description: Không tìm thấy bài tập
+          description: Không tìm thấy bài toán
 
   /problems/internal/{id}/testcases:
     get:
-      summary: "| INTERNAL | Lấy danh sách URL các file testcase cho Judge Worker"
+      summary: "| INTERNAL | Lấy danh sách testcases cho Judge Worker"
       description: Chỉ cho phép các dịch vụ nội bộ truy cập
       parameters:
         - name: id
@@ -70,25 +72,17 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Danh sách các URL tải file testcase (.txt) trực tiếp từ S3/Minio
+          description: Danh sách testcases
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  problemId:
-                    type: string
-                    format: uuid
-                  testcases:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/TestCaseURL'
-        '403':
-          description: Forbidden - Nếu request đến từ ngoài Gateway
+                type: array
+                items:
+                  $ref: '#/components/schemas/TestCase'
 
 components:
   schemas:
-    ProblemMetadata:
+    Problem:
       type: object
       properties:
         id:
@@ -96,44 +90,34 @@ components:
           format: uuid
         title:
           type: string
+          example: Two Sum
+        description:
+          type: string
+        time_limit:
+          type: integer
+          example: 1000
+        memory_limit:
+          type: integer
+          example: 256
         difficulty:
           type: string
           enum: [EASY, MEDIUM, HARD]
-        tags:
-          type: array
-          items:
-            type: string
 
-    ProblemDetail:
-      allOf:
-        - $ref: '#/components/schemas/ProblemMetadata'
-        - type: object
-          properties:
-            description:
-              type: string
-            timeLimitMs:
-              type: integer
-            memoryLimitKb:
-              type: integer
-            samples:
-              type: array
-              items:
-                type: object
-                properties:
-                  input:
-                    type: string
-                  output:
-                    type: string
-
-    TestCaseURL:
+    TestCase:
       type: object
       properties:
-        inputUrl:
+        id:
           type: string
-          format: uri
-        outputUrl:
+          format: uuid
+        problem_id:
           type: string
-          format: uri
-        weight:
-          type: integer
-          default: 1
+          format: uuid
+        input_url:
+          type: string
+          example: http://minio:9000/testcases/in_1.txt
+        output_url:
+          type: string
+          example: http://minio:9000/testcases/out_1.txt
+        created_at:
+          type: string
+          format: date-time
