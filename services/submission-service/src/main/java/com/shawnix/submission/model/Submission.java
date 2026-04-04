@@ -58,6 +58,6 @@ public class Submission {
     }
 
     public enum Verdict {
-        AC, WA, TLE, RTE, CE
+        AC, WA, TLE, MLE, RTE, CE, SE
     }
 }
