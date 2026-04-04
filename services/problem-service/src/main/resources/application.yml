@@ -1,0 +1,26 @@
+server:
+  port: 5001
+
+spring:
+  application:
+    name: problem-service
+  datasource:
+    url: jdbc:postgresql://db-problem:5432/${PROBLEM_DB_NAME:problem_db}
+    username: ${DB_USER:admin}
+    password: ${DB_PASSWORD:changeme}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+    show-sql: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery:8761/eureka/
+  instance:
+    prefer-ip-address: true
