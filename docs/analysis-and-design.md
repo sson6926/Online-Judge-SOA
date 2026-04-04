@@ -346,7 +346,7 @@ Lưu trữ mã nguồn và kết quả phản hồi từ Judge Service.
 │ status         : ENUM                        │
 │                  (PENDING, RUNNING, FINISHED)│
 │ verdict        : ENUM                        │
-│                  (AC, WA, TLE, RTE, CE)      │
+│                (AC, WA, TLE, MLE, RTE, CESE) │
 │ time_used      : INT (ms)                    │
 │ memory_used    : INT (KB)                    │
 │ error_details  : TEXT                        │

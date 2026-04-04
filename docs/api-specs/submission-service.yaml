@@ -11,7 +11,6 @@ paths:
   /health:
     get:
       summary: Health check
-      description: Kiểm tra tình trạng hoạt động của dịch vụ nộp bài.
       responses:
         '200':
           description: Dịch vụ đang hoạt động bình thường
@@ -23,27 +22,29 @@ paths:
                   status:
                     type: string
                     example: ok
+                  service:
+                    type: string
+                    example: submission-service
 
   /submissions:
     post:
       summary: Nộp mã nguồn (Submit)
       description: Nhận mã nguồn, lưu PENDING và đẩy vào Job Queue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRequest'
       responses:
         '202':
           description: Yêu cầu nộp bài được chấp nhận và đang xếp hàng chấm điểm
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  submissionId:
-                    type: string
-                    format: uuid
-                  message:
-                    type: string
-                    example: "Submission accepted and being processed"
+                $ref: '#/components/schemas/Submission'
         '400':
-          description: Bad Request (Lỗi định dạng code, ngôn ngữ không hỗ trợ)
+          description: Bad Request
 
   /submissions/{id}:
     get:
@@ -61,47 +62,72 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubmissionResult'
+                $ref: '#/components/schemas/Submission'
         '404':
           description: Không tìm thấy submissionId
 
 components:
   schemas:
-    SubmissionResult:
+    SubmitRequest:
+      type: object
+      required:
+        - problem_id
+        - user_id
+        - code
+        - language
+      properties:
+        problem_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: "print(input())"
+        language:
+          type: string
+          example: python
+
+    Submission:
       type: object
       properties:
-        submissionId:
+        id:
           type: string
           format: uuid
-        problemId:
+        problem_id:
           type: string
           format: uuid
+        user_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        language:
+          type: string
         status:
           type: string
           enum: [PENDING, RUNNING, FINISHED]
+          example: PENDING
         verdict:
           type: string
           enum: [AC, WA, TLE, MLE, RTE, CE, SE]
-          description: |
-            AC: Accepted
-            WA: Wrong Answer
-            TLE: Time Limit Exceeded
-            MLE: Memory Limit Exceeded
-            RTE: Runtime Error
-            CE: Compilation Error
-            SE: System Error
-        timeMs:
+          nullable: true
+        time_used:
           type: integer
-          description: Thời gian thực thi (mili giây)
-        memoryKb:
+          nullable: true
+          description: Thời gian thực thi (ms)
+        memory_used:
           type: integer
+          nullable: true
           description: Bộ nhớ tiêu thụ (KB)
-        submittedAt:
+        error_details:
+          type: string
+          nullable: true
+        submitted_at:
           type: string
           format: date-time
-        finishedAt:
+        finished_at:
           type: string
           format: date-time
-        errorMessage:
-          type: string
-          description: Chi tiết lỗi (nếu có - e.g compiler output)
+          nullable: true
