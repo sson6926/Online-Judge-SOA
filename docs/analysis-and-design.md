@@ -39,11 +39,11 @@ flowchart TD
 ### 1.3 Non-Functional Requirements
 | Requirement    | Description |
 |----------------|-------------|
-| Performance    | Thời gian thực thi code < 2 giây/testcase. Tối ưu nạp testcase qua Local Disk Cache và Batch Download ZIP. |
+| Performance    | Thời gian thực thi code < 2 giây/testcase. Tối ưu nạp testcase qua Local Disk Cache và Parallel Downloading (.txt). |
 | Security       | Thực thi code trong môi trường sandbox (isolation), hạn chế truy cập CPU, memory, file system và network. |
 | Scalability    | Judge Worker có thể scale horizontally dựa trên độ dài message queue. |
-| Availability   | Submission Service luôn phục vụ request nộp bài dù Judge bận |
-| Reliability | Sử dụng Message Queue trong kiến trúc bất đồng bộ và Idempotency Check để đảm bảo dữ liệu không bị mất và được xử lý chính xác. |
+| Availability   | Submission Service luôn phục vụ request nộp bài dù Judge bận. |
+| Reliability    | Sử dụng Message Queue trong kiến trúc bất đồng bộ và Idempotency Check để đảm bảo dữ liệu không bị mất và được xử lý chính xác. |
 
 
 ---
@@ -73,6 +73,7 @@ flowchart TD
 |---------------------|------------------------|
 | Validate → Save Submission → Publish to Message Queue | Submission Service |
 | Consume Verdict from Queue → Update Status | Submission Service |
+
 ### 2.5 Identify Resources
 | Entity / Process | Resource URI |
 |------------------|--------------|
@@ -92,10 +93,10 @@ flowchart TD
 ### 2.7 Utility Service & Microservice Candidates
 | Candidate | Type | Justification |
 |-----------|------|---------------|
-| Judge Service | Microservice | Ứng viên xử lý logic chấm điểm biệt lập, đòi hỏi tính cô lập tài nguyên (Sandbox) và hiệu suất thực thi cao. |
-| Gateway | Utility | Dịch vụ tiện ích quản lý định tuyến, xác thực JWT và giới hạn tốc độ (Rate Limiting). |
-| Message Broker | Utility | (RabbitMQ) Đảm bảo tính bất đồng bộ và khả năng chịu tải giữa các dịch vụ. |
-| Storage | Utility | (Minio/S3) Lưu trữ tập trung các bộ testcases dưới dạng file Zip (Batching). |
+| Judge Service | Microservice | Xử lý logic chấm điểm biệt lập, đòi hỏi tính cô lập tài nguyên (Sandbox) và hiệu suất thực thi cao. |
+| Gateway | Utility | Quản lý định tuyến, xác thực JWT và Rate Limiting. |
+| Message Broker | Utility | (RabbitMQ) Đảm bảo tính bất đồng bộ giữa các dịch vụ. |
+| Storage | Utility | (Minio/S3) Lưu trữ tập trung các bộ file testcases (.txt). |
 
 ### 2.8 Service Composition Candidates
 **Sơ đồ xử lý của Judge SVC:**
@@ -205,16 +206,13 @@ sequenceDiagram
     %% Judge processing
     MQ->>JS: Consume Job
 
-    JS->>PS: Get Testcase Metadata (file list + S3 URLs)
-    PS-->>JS: List<Testcase>
-
-    loop each file (parallel + limited concurrency)
-        alt Cache MISS
-            JS->>S3: Download file
-            JS->>JS: Save to Local Cache (/var/judge/cache/)
-        else Cache HIT
-            Note over JS: Use local cached file
-        end
+    alt Cache MISS (testcase)
+        JS->>PS: Get Testcase Metadata (URLs)
+        PS-->>JS: List<URLs> (Circuit Breaker)
+        JS->>S3: Download Multiple Text Files
+        JS->>JS: Save to Local Disk Cache
+    else Cache HIT
+        Note over JS: Load từ Local Disk Cache
     end
 
     JS->>JS: Execute in Docker Sandbox
@@ -232,6 +230,7 @@ sequenceDiagram
     RD-->>SS: Final Result
     SS-->>User: ACCEPTED / WRONG ANSWER
 ```
+
 ---
 
 ## Part 3 — Service-Oriented Design
@@ -259,23 +258,22 @@ Sử dụng hai luồng xử lý bất đồng bộ riêng biệt (submission fl
 ```mermaid
 flowchart TD
     subgraph "Submission flow"
-        A[Receive Submit Request] --> B{Valid Language?}
+        A[Receive Submit Request] --> B{Valid ?}
         B -- No --> C[Return 400 Bad Request]
         B -- Yes --> D[(Save to DB: PENDING)]
         D --> E[Push Job to Queue]
         E --> F[Return 202 Accepted]
     end
 
-    subgraph "Eesult processing flow"
-        G[Receive result from queue] --> H{Idempotency Check}
+    subgraph "Result processing flow"
+        G[Receive Result from Queue] --> H{Idempotency Check}
         H -- Already Finished --> I[Ignore Message]
         H -- Is Pending --> J[(Update DB: FINISHED)]
-        J --> K[Clear Temporary Cache]
+        J --> K[Update/Invalidate Cache]
     end
 ```
 
 **2. Judge Service Logic (Worker):**
-Tối ưu hóa hiệu năng thông qua cơ chế Caching và Batching.
 
 ```mermaid
 flowchart TD
@@ -283,16 +281,13 @@ flowchart TD
     B -- Cache HIT --> G[Start Sandbox]
     B -- Cache MISS --> C{Circuit Breaker OPEN?}
     
-    C -- Yes --> D[Fail Fast & Log Error]
-    C -- No --> E[Call Prob. SVC & Download S3 Zip]
-    
-    E --> F[Unzip to Local Disk]
+    C -- No --> E[Call Prob. SVC & Download Files]
+    E --> F[Save to Local Disk]
     F --> G[Start Docker Sandbox]
     
-    G --> H[Execute Source Code]
-    H --> I[Compare with standard Output]
-    I --> J[Publish Result to Queue]
-    J --> K[Clean Sandbox Resources]
+    G --> H[Execute & Compare Results]
+    H --> I[Publish Result to Queue]
+    I --> J[Clean Resources]
 ```
 
 ---
