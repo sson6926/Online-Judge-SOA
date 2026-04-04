@@ -21,6 +21,15 @@ services:
     depends_on:
       - problem-service
       - submission-service
+      - discovery
+    networks:
+      - app-network
+
+  # ─── Service Discovery (Eureka Server) ───────────
+  discovery:
+    build: ./discovery
+    ports:
+      - "8761:8761"
     networks:
       - app-network
 
@@ -33,6 +42,7 @@ services:
       - .env
     depends_on:
       - db-problem
+      - discovery
     networks:
       - app-network
 
@@ -47,6 +57,7 @@ services:
       - db-submission
       - rabbitmq
       - redis
+      - discovery
     networks:
       - app-network
 
