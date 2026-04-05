@@ -110,11 +110,16 @@ public class ProblemServiceImpl implements ProblemService {
     }
 
     private TestCaseResponse toResponse(TestCase tc) {
+        Problem p = tc.getProblem();
         return TestCaseResponse.builder()
                 .id(tc.getId())
-                .problemId(tc.getProblem().getId())
+                .problemId(p.getId())
                 .inputUrl(tc.getInputKey() != null ? minioService.generateUrl(tc.getInputKey()) : null)
                 .outputUrl(tc.getOutputKey() != null ? minioService.generateUrl(tc.getOutputKey()) : null)
+                .problemTitle(p.getTitle())
+                .timeLimit(p.getTimeLimit())
+                .memoryLimit(p.getMemoryLimit())
+                .difficulty(p.getDifficulty())
                 .build();
     }
 }
