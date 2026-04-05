@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: API Gateway
+  description: |
+    Single entry point cho hệ thống Online Judge.
+    Xử lý JWT authentication, rate limiting và routing đến các downstream services.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Development server (host port)
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Gateway đang hoạt động
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/users/signup:
+    post:
+      summary: Đăng ký tài khoản (public)
+      tags: [Users - proxied]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: Tạo tài khoản thành công
+        '400':
+          description: Username hoặc email đã tồn tại
+
+  /api/users/login:
+    post:
+      summary: Đăng nhập, nhận JWT (public)
+      tags: [Users - proxied]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công, trả về JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Sai username hoặc password
+
+  /api/problems:
+    get:
+      summary: Lấy danh sách bài toán (public)
+      tags: [Problems - proxied]
+      responses:
+        '200':
+          description: Danh sách bài toán
+
+  /api/problems/{id}:
+    get:
+      summary: Lấy chi tiết bài toán (public)
+      tags: [Problems - proxied]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chi tiết bài toán
+        '404':
+          description: Không tìm thấy
+
+  /api/submissions:
+    post:
+      summary: Nộp bài (yêu cầu JWT, rate limited)
+      tags: [Submissions - proxied]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRequest'
+      responses:
+        '202':
+          description: Bài nộp được tiếp nhận
+        '401':
+          description: Thiếu hoặc sai JWT
+        '429':
+          description: Vượt quá giới hạn rate limit (5 req/s)
+
+  /api/submissions/{id}:
+    get:
+      summary: Lấy trạng thái bài nộp (yêu cầu JWT)
+      tags: [Submissions - proxied]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Trạng thái bài nộp
+        '401':
+          description: Thiếu hoặc sai JWT
+        '404':
+          description: Không tìm thấy
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    SignupRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            username:
+              type: string
+            role:
+              type: string
+              enum: [ADMIN, STUDENT]
+
+    SubmitRequest:
+      type: object
+      required: [problem_id, code, language]
+      properties:
+        problem_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        language:
+          type: string
+          enum: [JAVA, PYTHON, CPP]
