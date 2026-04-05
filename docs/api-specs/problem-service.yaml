@@ -11,7 +11,6 @@ paths:
   /health:
     get:
       summary: Health check
-      description: Kiểm tra tình trạng hoạt động của dịch vụ.
       responses:
         '200':
           description: Dịch vụ đang hoạt động bình thường
@@ -23,72 +22,165 @@ paths:
                   status:
                     type: string
                     example: ok
+                  service:
+                    type: string
+                    example: problem-service
 
   /problems:
     get:
       summary: Lấy danh sách bài toán
       responses:
         '200':
-          description: Danh sách bài tập tối giản (chủ yếu là metadata)
+          description: Danh sách bài toán
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ProblemMetadata'
+                  $ref: '#/components/schemas/Problem'
+    post:
+      summary: Tạo bài toán mới
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemRequest'
+      responses:
+        '201':
+          description: Bài toán được tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '400':
+          description: Dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /problems/{id}:
     get:
       summary: Lấy chi tiết một bài toán
       parameters:
-        - name: id
+        - $ref: '#/components/parameters/ProblemId'
+      responses:
+        '200':
+          description: Chi tiết bài toán
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Không tìm thấy bài toán
+    delete:
+      summary: Xóa bài toán và toàn bộ testcase liên quan (bao gồm files trên MinIO)
+      parameters:
+        - $ref: '#/components/parameters/ProblemId'
+      responses:
+        '204':
+          description: Xóa thành công
+        '404':
+          description: Không tìm thấy bài toán
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /problems/{id}/testcases:
+    post:
+      summary: Upload testcase mới cho bài toán (multipart form)
+      parameters:
+        - $ref: '#/components/parameters/ProblemId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - input
+                - output
+              properties:
+                input:
+                  type: string
+                  format: binary
+                  description: File input (.txt)
+                output:
+                  type: string
+                  format: binary
+                  description: File output (.txt)
+      responses:
+        '201':
+          description: Testcase được tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestCaseResponse'
+        '400':
+          description: File không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy bài toán
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /problems/testcases/{testCaseId}:
+    delete:
+      summary: Xóa một testcase (bao gồm files trên MinIO)
+      parameters:
+        - name: testCaseId
           in: path
           required: true
           schema:
             type: string
             format: uuid
       responses:
-        '200':
-          description: Chi tiết bài tập bao gồm đề bài và các ví dụ (samples)
+        '204':
+          description: Xóa thành công
+        '404':
+          description: Không tìm thấy testcase
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
-        '404':
-          description: Không tìm thấy bài tập
+                $ref: '#/components/schemas/ErrorResponse'
 
   /problems/internal/{id}/testcases:
     get:
-      summary: "| INTERNAL | Lấy danh sách URL các file testcase cho Judge Worker"
-      description: Chỉ cho phép các dịch vụ nội bộ truy cập
+      summary: "| INTERNAL | Lấy danh sách testcases kèm presigned URL cho Judge Worker"
+      description: |
+        Chỉ dành cho các dịch vụ nội bộ (Judge Service).
+        Trả về presigned URL có hạn 1 giờ được generate on-the-fly từ object key trong MinIO.
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/ProblemId'
       responses:
         '200':
-          description: Danh sách các URL tải file testcase (.txt) trực tiếp từ S3/Minio
+          description: Danh sách testcases với presigned URL
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  problemId:
-                    type: string
-                    format: uuid
-                  testcases:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/TestCaseURL'
-        '403':
-          description: Forbidden - Nếu request đến từ ngoài Gateway
+                type: array
+                items:
+                  $ref: '#/components/schemas/TestCaseResponse'
 
 components:
+  parameters:
+    ProblemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
   schemas:
-    ProblemMetadata:
+    Problem:
       type: object
       properties:
         id:
@@ -96,44 +188,61 @@ components:
           format: uuid
         title:
           type: string
+          example: Two Sum
+        description:
+          type: string
+        time_limit:
+          type: integer
+          example: 1000
+        memory_limit:
+          type: integer
+          example: 256
         difficulty:
           type: string
           enum: [EASY, MEDIUM, HARD]
-        tags:
-          type: array
-          items:
-            type: string
 
-    ProblemDetail:
-      allOf:
-        - $ref: '#/components/schemas/ProblemMetadata'
-        - type: object
-          properties:
-            description:
-              type: string
-            timeLimitMs:
-              type: integer
-            memoryLimitKb:
-              type: integer
-            samples:
-              type: array
-              items:
-                type: object
-                properties:
-                  input:
-                    type: string
-                  output:
-                    type: string
+    ProblemRequest:
+      type: object
+      required:
+        - title
+        - difficulty
+      properties:
+        title:
+          type: string
+          example: Two Sum
+        description:
+          type: string
+        time_limit:
+          type: integer
+          example: 1000
+        memory_limit:
+          type: integer
+          example: 256
+        difficulty:
+          type: string
+          enum: [EASY, MEDIUM, HARD]
 
-    TestCaseURL:
+    ErrorResponse:
       type: object
       properties:
-        inputUrl:
+        error:
           type: string
-          format: uri
-        outputUrl:
+          example: Problem not found: uuid
+
+    TestCaseResponse:
+      type: object
+      properties:
+        id:
           type: string
-          format: uri
-        weight:
-          type: integer
-          default: 1
+          format: uuid
+        problem_id:
+          type: string
+          format: uuid
+        input_url:
+          type: string
+          description: Presigned URL (hết hạn sau 1 giờ)
+          example: http://minio:9000/testcases/problems/uuid/in_uuid.txt?X-Amz-Signature=...
+        output_url:
+          type: string
+          description: Presigned URL (hết hạn sau 1 giờ)
+          example: http://minio:9000/testcases/problems/uuid/out_uuid.txt?X-Amz-Signature=...
