@@ -1,6 +1,12 @@
 spring:
   application:
     name: api-gateway
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+
   cloud:
     gateway:
       routes:
@@ -10,6 +16,7 @@ spring:
             - Path=/api/users/**
           filters:
             - StripPrefix=1
+
         - id: problem-service
           uri: lb://problem-service
           predicates:
@@ -23,6 +30,12 @@ spring:
             - Path=/api/submissions/**
           filters:
             - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
 
 server:
   port: 8000
@@ -30,6 +43,22 @@ server:
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka}
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://discovery:8761/eureka}
     register-with-eureka: true
     fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+# JWT secret — shared with user-service
+jwt:
+  secret: ${JWT_SECRET:default-secret-change-in-production}
+
+# Expose health endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

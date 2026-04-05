@@ -322,8 +322,8 @@ Quản lý nội dung bài tập và các bộ kiểm thử tương ứng (1 đ�
 ├──────────────────────────────────────────────┤       ├──────────────────────────────────────────────┤
 │ id             : UUID (PK)                   │       │ id             : UUID (PK)                   │ 
 │ title          : VARCHAR(255)                │       │ problem_id     : UUID (FK)                   │
-│ description    : TEXT                        │──────○│ input_url      : VARCHAR(512)                │
-│ time_limit     : INT (ms)                    │ (1-n) │ output_url     : VARCHAR(512)                │
+│ description    : TEXT                        │──────○│ input_key      : VARCHAR(512)                │
+│ time_limit     : INT (ms)                    │ (1-n) │ output_key     : VARCHAR(512)                │
 │ memory_limit   : INT (KB)                    │       │ created_at     : TIMESTAMP                   │
 │ difficulty     : ENUM                        │       └──────────────────────────────────────────────┘
 │                  (EASY, MEDIUM, HARD)        │
