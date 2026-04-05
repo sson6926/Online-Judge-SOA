@@ -1,12 +1,14 @@
 package com.shawnix.user_service.service;
 
 import com.shawnix.user_service.dto.LoginRequest;
+import com.shawnix.user_service.dto.LoginResponse;
 import com.shawnix.user_service.dto.SignupRequest;
 import com.shawnix.user_service.dto.UpdateUserRequest;
 import com.shawnix.user_service.dto.UserResponse;
 import com.shawnix.user_service.entity.User;
 import com.shawnix.user_service.entity.UserRole;
 import com.shawnix.user_service.repository.UserRepository;
+import com.shawnix.user_service.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
 
 
     public UserResponse createUser(SignupRequest request) {
@@ -38,7 +41,7 @@ public class UserService {
         return mapToResponse(savedUser);
     }
 
-    public UserResponse authenticateUser(LoginRequest request) {
+    public LoginResponse authenticateUser(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
             .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -46,7 +49,8 @@ public class UserService {
             throw new RuntimeException("Invalid password");
         }
 
-        return mapToResponse(user);
+        String token = jwtUtil.generateToken(user.getId(), user.getRole().name());
+        return new LoginResponse(token, mapToResponse(user));
     }
 
 
