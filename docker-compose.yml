@@ -4,26 +4,26 @@
 
 services:
   # ─── Frontend ────────────────────────────────────
-  frontend:
-    build: ./frontend
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    depends_on:
-      - gateway
-    networks:
-      - app-network
+#  frontend:
+#    build: ./frontend
+#    ports:
+#      - "${FRONTEND_PORT:-3000}:3000"
+#    depends_on:
+#      - gateway
+#    networks:
+#      - app-network
 
   # ─── API Gateway ─────────────────────────────────
-  gateway:
-    build: ./gateway
-    ports:
-      - "${GATEWAY_PORT:-8080}:8000"
-    depends_on:
-      - problem-service
-      - submission-service
-      - discovery
-    networks:
-      - app-network
+  # gateway:
+  #   build: ./gateway
+  #   ports:
+  #     - "${GATEWAY_PORT:-8080}:8000"
+  #   depends_on:
+  #     - problem-service
+  #     - submission-service
+  #     - discovery
+  #   networks:
+  #     - app-network
 
   # ─── Service Discovery (Eureka Server) ───────────
   discovery:
