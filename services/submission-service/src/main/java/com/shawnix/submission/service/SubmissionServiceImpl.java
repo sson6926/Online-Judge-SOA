@@ -1,6 +1,7 @@
 package com.shawnix.submission.service;
 
 import com.shawnix.submission.config.RabbitMQConfig;
+import com.shawnix.submission.dto.SubmitRequest;
 import com.shawnix.submission.model.Submission;
 import com.shawnix.submission.repository.SubmissionRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,9 +27,15 @@ public class SubmissionServiceImpl implements SubmissionService {
 
     @Override
     @Transactional
-    public Submission submit(Submission submission) {
-        // 1. Initial status
-        submission.setStatus(Submission.Status.PENDING);
+    public Submission submit(SubmitRequest request) {
+        // Map DTO → Entity, chỉ lấy field client được phép gửi
+        Submission submission = Submission.builder()
+                .problemId(request.getProblemId())
+                .userId(request.getUserId())
+                .code(request.getCode())
+                .language(request.getLanguage())
+                .status(Submission.Status.PENDING)
+                .build();
         
         // 2. Save to DB
         Submission saved = submissionRepository.save(submission);
@@ -52,6 +59,13 @@ public class SubmissionServiceImpl implements SubmissionService {
         }
         
         // 2. Fallback to DB
-        return submissionRepository.findById(id).orElse(null);
+        Submission submission = submissionRepository.findById(id).orElse(null);
+        
+        // 3. Write back to Cache (Cache-Aside pattern)
+        if (submission != null) {
+            redisTemplate.opsForValue().set(REDIS_SUBMISSION_PREFIX + id, submission, 10, java.util.concurrent.TimeUnit.MINUTES);
+        }
+        
+        return submission;
     }
 }

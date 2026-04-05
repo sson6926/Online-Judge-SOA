@@ -1,5 +1,5 @@
 server:
-  port: 5002
+  port: ${SUBMISSION_SERVICE_PORT:5002}
 
 spring:
   application:
@@ -21,13 +21,22 @@ spring:
   data:
     redis:
       host: ${REDIS_HOST:redis}
-      port: 6379
+      port: ${REDIS_PORT:6379}
   
   rabbitmq:
     host: ${RABBITMQ_HOST:rabbitmq}
-    port: 5672
+    port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASS:guest}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 3000
+          multiplier: 2
+          max-interval: 10000
+#        prefetch: 1 Số lượng message mà 1 consumer được nhận trước khi ACK
 
 eureka:
   client:

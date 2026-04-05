@@ -1,7 +1,9 @@
 package com.shawnix.submission.controller;
 
+import com.shawnix.submission.dto.SubmitRequest;
 import com.shawnix.submission.model.Submission;
 import com.shawnix.submission.service.SubmissionService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,8 +18,8 @@ public class SubmissionController {
     private final SubmissionService submissionService;
 
     @PostMapping
-    public ResponseEntity<Submission> submit(@RequestBody Submission submission) {
-        Submission result = submissionService.submit(submission);
+    public ResponseEntity<Submission> submit(@Valid @RequestBody SubmitRequest request) {
+        Submission result = submissionService.submit(request);
         return ResponseEntity.accepted().body(result);
     }
 
