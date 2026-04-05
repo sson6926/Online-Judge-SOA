@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 @Component
 @RequiredArgsConstructor
@@ -38,7 +37,13 @@ public class SubmissionListener {
 
         Submission submission = submissionOpt.get();
         
-        // Update results
+        // 1. Idempotency Check (Production-grade)
+        if (Submission.Status.FINISHED.equals(submission.getStatus())) {
+            log.warn("Bài nộp ID: {} đã có kết quả rồi (FINISHED). Bỏ qua xử lý trùng lặp.", submission.getId());
+            return;
+        }
+
+        // 2. Update results
         submission.setStatus(Submission.Status.FINISHED);
         submission.setVerdict(result.getVerdict());
         submission.setTimeUsed(result.getTimeUsed());
@@ -49,8 +54,8 @@ public class SubmissionListener {
         // 1. Save to DB
         submissionRepository.save(submission);
 
-        // 2. Update/Invalidate Cache
-        redisTemplate.opsForValue().set(REDIS_SUBMISSION_PREFIX + submission.getId(), submission, 30, TimeUnit.MINUTES);
+        // 2. Invalidate Cache — xóa cache PENDING cũ, polling tiếp theo sẽ đọc từ DB
+        redisTemplate.delete(REDIS_SUBMISSION_PREFIX + submission.getId());
         
         log.info("Cập nhật kết quả thành công cho Submission ID: {}", submission.getId());
     }
