@@ -246,3 +246,17 @@ components:
           type: string
           description: Presigned URL (hết hạn sau 1 giờ)
           example: http://minio:9000/testcases/problems/uuid/out_uuid.txt?X-Amz-Signature=...
+        problem_title:
+          type: string
+          example: Two Sum
+        time_limit:
+          type: integer
+          description: Giới hạn thời gian thực thi (ms) — Judge dùng để set sandbox timeout
+          example: 1000
+        memory_limit:
+          type: integer
+          description: Giới hạn bộ nhớ (KB) — Judge dùng để set sandbox memory cap
+          example: 256
+        difficulty:
+          type: string
+          enum: [EASY, MEDIUM, HARD]
