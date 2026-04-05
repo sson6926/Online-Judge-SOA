@@ -52,6 +52,13 @@ public class SubmissionServiceImpl implements SubmissionService {
         }
         
         // 2. Fallback to DB
-        return submissionRepository.findById(id).orElse(null);
+        Submission submission = submissionRepository.findById(id).orElse(null);
+        
+        // 3. Write back to Cache (Cache-Aside pattern)
+        if (submission != null) {
+            redisTemplate.opsForValue().set(REDIS_SUBMISSION_PREFIX + id, submission, 10, java.util.concurrent.TimeUnit.MINUTES);
+        }
+        
+        return submission;
     }
 }

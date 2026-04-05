@@ -1,52 +1,67 @@
-# Service B
-
-> Rename this to match your actual service name (e.g., `product-service`, `payment-service`).
+# Submission Service
 
 ## Overview
+Tiếp nhận bài nộp mã nguồn từ người dùng, quản lý trạng thái chấm điểm và trả kết quả qua cơ chế Polling.
 
-Describe the responsibility of this service:
-- What business domain does it cover?
-- What data does it own?
-- What operations does it expose?
+- Lưu bài nộp với trạng thái `PENDING` vào PostgreSQL
+- Cache trạng thái vào Redis để phục vụ Polling nhanh
+- Đẩy job vào RabbitMQ `judge.jobs` queue để Judge Worker xử lý
+- Lắng nghe kết quả từ `judge.results` queue và cập nhật DB
 
 ## Tech Stack
 
 | Component  | Choice             |
 |------------|--------------------|
-| Language   | *(e.g., Python, Node.js, Java, Go, C#)* |
-| Framework  | *(e.g., FastAPI, Express, Spring Boot)*  |
-| Database   | *(e.g., PostgreSQL, MongoDB, MySQL)*     |
+| Language   | Java 17 |
+| Framework  | Spring Boot 3.4.4 |
+| Database   | PostgreSQL |
+| Cache      | Redis |
+| Messaging  | RabbitMQ |
+| Discovery  | Eureka Client |
 
 ## API Endpoints
 
-| Method | Endpoint      | Description          |
-|--------|---------------|----------------------|
-| GET    | `/health`     | Health check         |
-| ...    | ...           | ...                  |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/submissions` | Nộp bài mới (202 Accepted) |
+| GET | `/submissions/{id}` | Polling kết quả chấm |
 
-> Full API specification: [`docs/api-specs/service-b.yaml`](../../docs/api-specs/service-b.yaml)
+> Full API specification: [`docs/api-specs/submission-service.yaml`](../../docs/api-specs/submission-service.yaml)
 
 ## Running Locally
 
 ```bash
 # From project root
-docker compose up service-b --build
+docker compose up submission-service --build
 ```
 
 ## Project Structure
 
 ```
-service-b/
+submission-service/
 ├── Dockerfile
+├── pom.xml
 ├── readme.md
-└── src/           # Your source code goes here
+└── src/main/java/com/shawnix/submission/
+    ├── SubmissionApplication.java
+    ├── config/         # RabbitMQ, Redis config
+    ├── controller/     # REST endpoints
+    ├── dto/            # JudgeResultDTO
+    ├── listener/       # RabbitMQ result consumer
+    ├── model/          # Submission entity
+    ├── repository/     # JPA repository
+    └── service/        # Business logic
 ```
 
 ## Environment Variables
 
-| Variable   | Description         | Default   |
-|------------|---------------------|-----------|
-| `DB_HOST`  | Database hostname   | localhost |
-| `DB_PORT`  | Database port       | 5432      |
-
-
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SUBMISSION_DB_NAME` | Database name | `submission_db` |
+| `DB_USER` | Database username | `admin` |
+| `DB_PASSWORD` | Database password | `{password}` |
+| `RABBITMQ_HOST` | RabbitMQ hostname | `rabbitmq` |
+| `RABBITMQ_USER` | RabbitMQ username | `guest` |
+| `RABBITMQ_PASS` | RabbitMQ password | `{password}` |
+| `REDIS_HOST` | Redis hostname | `redis` |

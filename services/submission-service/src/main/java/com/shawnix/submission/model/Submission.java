@@ -1,6 +1,8 @@
 package com.shawnix.submission.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
@@ -20,15 +22,19 @@ public class Submission {
     private UUID id;
 
     @Column(name = "problem_id", nullable = false)
+    @NotNull(message = "problem_id không được để trống")
     private UUID problemId;
 
     @Column(name = "user_id", nullable = false)
+    @NotNull(message = "user_id không được để trống")
     private UUID userId;
 
     @Column(columnDefinition = "TEXT", nullable = false)
+    @NotBlank(message = "code không được để trống")
     private String code;
 
     @Column(nullable = false)
+    @NotBlank(message = "language không được để trống")
     private String language;
 
     @Enumerated(EnumType.STRING)
