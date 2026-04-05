@@ -28,6 +28,15 @@ spring:
     port: 5672
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASS:guest}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 3000
+          multiplier: 2
+          max-interval: 10000
+#        prefetch: 1 Số lượng message mà 1 consumer được nhận trước khi ACK
 
 eureka:
   client:
