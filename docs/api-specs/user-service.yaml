@@ -71,6 +71,8 @@ paths:
     get:
       summary: Get a user profile
       operationId: getUserProfile
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -92,6 +94,8 @@ paths:
     put:
       summary: Update a user profile
       operationId: updateUserProfile
+      security:
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -119,6 +123,12 @@ paths:
           description: User not found
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthResponse:
       type: object
@@ -126,6 +136,16 @@ components:
         status:
           type: string
           example: ok
+        service:
+          type: string
+          example: user-service
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Username already exists
 
     SignupRequest:
       type: object
@@ -174,6 +194,10 @@ components:
     LoginResponse:
       type: object
       properties:
+        token:
+          type: string
+          description: JWT Bearer token, dùng cho các request cần xác thực
+          example: eyJhbGciOiJIUzI1NiJ9...
         user:
           $ref: '#/components/schemas/UserResponse'
 

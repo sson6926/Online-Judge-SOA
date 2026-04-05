@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginResponse {
-    
+    private String token;
     private UserResponse user;
-    // token sẽ được thêm ở Gateway
 }
