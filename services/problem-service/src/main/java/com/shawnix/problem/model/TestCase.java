@@ -20,9 +20,10 @@ public class TestCase {
     @JoinColumn(name = "problem_id", nullable = false)
     private Problem problem;
 
-    @Column(name = "input_url", length = 512)
-    private String inputUrl;
+    // Object keys in MinIO (e.g. "problems/{problemId}/in_1.txt")
+    @Column(name = "input_key", length = 512)
+    private String inputKey;
 
-    @Column(name = "output_url", length = 512)
-    private String outputUrl;
+    @Column(name = "output_key", length = 512)
+    private String outputKey;
 }
