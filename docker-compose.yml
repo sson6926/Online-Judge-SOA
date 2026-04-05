@@ -43,6 +43,7 @@ services:
     depends_on:
       - db-problem
       - discovery
+      - minio
     networks:
       - app-network
 
@@ -88,6 +89,21 @@ services:
     networks:
       - app-network
 
+  # ─── MinIO (Object Storage) ──────────────────────
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - app-network
+
   # ─── Infrastructure ──────────────────────────────
   redis:
     image: redis:7-alpine
@@ -114,3 +130,4 @@ networks:
 volumes:
   db-problem-data:
   db-submission-data:
+  minio-data:
