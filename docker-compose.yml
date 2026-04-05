@@ -14,22 +14,42 @@ services:
 #      - app-network
 
   # ─── API Gateway ─────────────────────────────────
-  # gateway:
-  #   build: ./gateway
-  #   ports:
-  #     - "${GATEWAY_PORT:-8080}:8000"
-  #   depends_on:
-  #     - problem-service
-  #     - submission-service
-  #     - discovery
-  #   networks:
-  #     - app-network
+  gateway:
+    build: ./gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EUREKA_DEFAULT_ZONE: http://discovery:8761/eureka
+    depends_on:
+      - problem-service
+      - submission-service
+      - user-service
+      - discovery
+      - redis
+    networks:
+      - app-network
 
   # ─── Service Discovery (Eureka Server) ───────────
   discovery:
     build: ./discovery
     ports:
       - "8761:8761"
+    networks:
+      - app-network
+
+  # ─── User Service ────────────────────────────────
+  user-service:
+    build: ./services/user-service
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    depends_on:
+      - db-user
+      - discovery
     networks:
       - app-network
 
@@ -63,6 +83,19 @@ services:
       - app-network
 
   # ─── Databases ───────────────────────────────────
+  db-user:
+    image: postgres:16-alpine
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: ${USER_DB_NAME:-user_db}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-user-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
   db-problem:
     image: postgres:16-alpine
     ports:
@@ -128,6 +161,7 @@ networks:
     driver: bridge
 
 volumes:
+  db-user-data:
   db-problem-data:
   db-submission-data:
   minio-data:
