@@ -37,7 +37,7 @@ public class TestCaseService {
         try {
             Files.createDirectories(testCasesRoot);
             for (ListTestCaseDto testCase : testCases) {
-                prepareSingleTestCase(testCasesRoot, testCase);
+                prepareTestCase(submissionId, workspacePath, testCase);
             }
             return testCasesRoot;
         } catch (IOException e) {
@@ -45,12 +45,24 @@ public class TestCaseService {
         }
     }
 
-    private void prepareSingleTestCase(Path testCasesRoot, ListTestCaseDto testCase) throws IOException {
+    public Path prepareTestCase(UUID submissionId, Path workspacePath, ListTestCaseDto testCase) {
+        Path testCasesRoot = workspacePath.resolve(TEST_CASE_FOLDER);
+        try {
+            Files.createDirectories(testCasesRoot);
+            return prepareSingleTestCase(testCasesRoot, testCase);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to prepare testcase for submissionId=" + submissionId
+                    + ", testcaseId=" + (testCase == null ? null : testCase.getId()), e);
+        }
+    }
+
+    private Path prepareSingleTestCase(Path testCasesRoot, ListTestCaseDto testCase) throws IOException {
         Path testCaseDir = testCasesRoot.resolve(testCase.getId().toString());
         Files.createDirectories(testCaseDir);
 
         downloadFile(testCase.getInputUrl(), testCaseDir.resolve(INPUT_FILE));
         downloadFile(testCase.getOutputUrl(), testCaseDir.resolve(EXPECTED_OUTPUT_FILE));
+        return testCaseDir;
     }
 
     private void downloadFile(String url, Path outputPath) throws IOException {
