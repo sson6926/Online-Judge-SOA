@@ -32,3 +32,9 @@ judge:
   workspace:
     root: ${JUDGE_WORKSPACE_ROOT:/tmp/judge-jobs}
     cleanup-enabled: ${JUDGE_WORKSPACE_CLEANUP:true}
+  testcases:
+    source: ${JUDGE_TESTCASES_SOURCE:mock}
+
+services:
+  problem-service:
+    url: ${PROBLEM_SERVICE_URL:http://problem-service:5001}

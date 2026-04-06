@@ -1,5 +1,6 @@
 package com.shanwinx.judge_service.service;
 
+import com.shanwinx.judge_service.client.ProblemServiceClient;
 import com.shanwinx.judge_service.dto.JudgeResultDTO;
 import com.shanwinx.judge_service.dto.ListTestCaseDto;
 import com.shanwinx.judge_service.dto.ListTestCaseMockData;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -31,10 +33,16 @@ public class JudgeExecutionService {
     private static final String EXPECTED_OUTPUT_FILE = "output.expected.out";
     private static final String STAT_FILE = "stat";
 
+    private static final String TESTCASE_SOURCE_PROBLEM = "problem";
+
     private final JobWorkspaceService jobWorkspaceService;
     private final LanguageExecutorResolver languageExecutorResolver;
     private final DockerSandboxService dockerSandboxService;
     private final TestCaseService testCaseService;
+    private final ProblemServiceClient problemServiceClient;
+
+    @Value("${judge.testcases.source:mock}")
+    private String testcasesSource;
 
     public JudgeResultDTO execute(SubmissionJobDTO job, Path workspacePath) {
         return executeDetailed(job, workspacePath).getJudgeResult();
@@ -51,7 +59,11 @@ public class JudgeExecutionService {
                     "Unsupported language: " + job.getLanguage());
         }
 
-        List<ListTestCaseDto> testcases = ListTestCaseMockData.sample();
+        if (isProblemSource() && job.getProblemId() == null) {
+            return executionResult(job.getId(), Verdict.SE, 0, 0, "Missing problem id");
+        }
+
+        List<ListTestCaseDto> testcases = loadTestCases(job);
         if (testcases.isEmpty()) {
             return executionResult(job.getId(), Verdict.SE, 0, 0, "No test cases for problem");
         }
@@ -150,6 +162,18 @@ public class JudgeExecutionService {
         }
 
         return executionResult(job.getId(), Verdict.AC, maxTimeUsedMs, maxMemoryUsedKb, null);
+    }
+
+    private boolean isProblemSource() {
+        return testcasesSource != null && TESTCASE_SOURCE_PROBLEM.equalsIgnoreCase(testcasesSource.trim());
+    }
+
+    private List<ListTestCaseDto> loadTestCases(SubmissionJobDTO job) {
+        if (isProblemSource()) {
+            List<ListTestCaseDto> fromApi = problemServiceClient.getTestCasesByProblemId(job.getProblemId());
+            return fromApi != null ? fromApi : List.of();
+        }
+        return ListTestCaseMockData.sample();
     }
 
     private static long runTimeoutMsFor(ListTestCaseDto testCase) {
