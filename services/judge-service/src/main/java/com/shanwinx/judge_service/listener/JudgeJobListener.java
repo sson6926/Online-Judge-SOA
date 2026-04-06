@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -21,6 +22,9 @@ public class JudgeJobListener {
     private final RabbitTemplate rabbitTemplate;
     private final JobWorkspaceService jobWorkspaceService;
     private final JudgeExecutionService judgeExecutionService;
+
+    @Value("${judge.workspace.cleanup-enabled:true}")
+    private boolean cleanupWorkspaceEnabled;
 
     @RabbitListener(queues = RabbitMQConfig.JOB_QUEUE)
     public void onJobReceived(SubmissionJobDTO job) {
@@ -55,6 +59,9 @@ public class JudgeJobListener {
 
             rabbitTemplate.convertAndSend(RabbitMQConfig.RESULT_QUEUE, failed);
         } finally {
+            if (!cleanupWorkspaceEnabled || workspacePath == null) {
+                return;
+            }
             try {
                 jobWorkspaceService.cleanupWorkspace(workspacePath);
             } catch (RuntimeException cleanupEx) {
