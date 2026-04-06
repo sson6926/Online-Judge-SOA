@@ -1,12 +1,17 @@
 package com.shanwinx.judge_service.service;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
+@Slf4j
 public class DockerSandboxService {
 
     private static final String STAT_SEPARATOR = "|";
@@ -64,6 +69,48 @@ public class DockerSandboxService {
         return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
+    public ExecutionStat parseExecutionStat(Path statFilePath) {
+        if (statFilePath == null || !Files.exists(statFilePath)) {
+            return new ExecutionStat(0, 0);
+        }
+
+        try {
+            String statRaw = Files.readString(statFilePath, StandardCharsets.UTF_8).trim();
+            if (statRaw.isBlank()) {
+                return new ExecutionStat(0, 0);
+            }
+
+            String[] parts = statRaw.split("\\|");
+            if (parts.length < 2) {
+                return new ExecutionStat(0, 0);
+            }
+
+            int timeUsed = parseSecondsToMillis(parts[0]);
+            int memoryUsed = parseInteger(parts[1]);
+            return new ExecutionStat(timeUsed, memoryUsed);
+        } catch (IOException ex) {
+            log.warn("Cannot read stat file {}", statFilePath, ex);
+            return new ExecutionStat(0, 0);
+        }
+    }
+
+    private int parseSecondsToMillis(String secondsText) {
+        try {
+            double seconds = Double.parseDouble(secondsText.trim());
+            return (int) Math.max(0, Math.round(seconds * 1000));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
+    private int parseInteger(String value) {
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
     public static final class ProcessOutcome {
         private final int exitCode;
         private final String stdout;
@@ -95,6 +142,24 @@ public class DockerSandboxService {
 
         public boolean isTimedOut() {
             return timedOut;
+        }
+
+        public int getTimeUsed() {
+            return timeUsed;
+        }
+
+        public int getMemoryUsed() {
+            return memoryUsed;
+        }
+    }
+
+    public static final class ExecutionStat {
+        private final int timeUsed;
+        private final int memoryUsed;
+
+        public ExecutionStat(int timeUsed, int memoryUsed) {
+            this.timeUsed = timeUsed;
+            this.memoryUsed = memoryUsed;
         }
 
         public int getTimeUsed() {
