@@ -32,17 +32,20 @@ public class DockerSandboxService {
         }
 
         String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
+        String shellCommand = buildShellCommand(command);
         List<String> dockerCommand = new ArrayList<>();
         dockerCommand.add("docker");
         dockerCommand.add("run");
-        dockerCommand.add("-i");
         dockerCommand.add("--rm");
         dockerCommand.add("-v");
         dockerCommand.add(workspacePath + ":/workspace");
         dockerCommand.add("-w");
         dockerCommand.add("/workspace");
+        dockerCommand.add("--entrypoint");
+        dockerCommand.add("/bin/bash");
         dockerCommand.add(sandboxImage);
-        dockerCommand.addAll(command);
+        dockerCommand.add("-lc");
+        dockerCommand.add(shellCommand);
 
         Path compileLog = workingDirectory.resolve(COMPILE_LOG_FILE);
         Path compileErr = workingDirectory.resolve(COMPILE_ERROR_FILE);
@@ -95,12 +98,13 @@ public class DockerSandboxService {
         dockerCommand.add(workspacePath + ":/workspace");
         dockerCommand.add("-w");
         dockerCommand.add("/workspace");
+        dockerCommand.add("--entrypoint");
+        dockerCommand.add("/bin/bash");
         dockerCommand.add(sandboxImage);
-        dockerCommand.add("sh");
-        dockerCommand.add("-c");
+        dockerCommand.add("-lc");
         dockerCommand.add(shellCommand);
 
-        return executeDockerCommand(dockerCommand, timeoutMs, null, null);
+        return executeDockerCommand(dockerCommand, timeoutMs, null, runErrFilePath);
     }
 
     private int executeDockerCommand(List<String> dockerCommand, long timeoutMs, Path outputFile, Path errorFile) {
@@ -135,13 +139,6 @@ public class DockerSandboxService {
         Path absoluteStat = statFilePath.toAbsolutePath().normalize();
         Path relative = absoluteWorkspace.relativize(absoluteStat);
         return "/workspace/" + relative.toString().replace('\\', '/');
-    }
-
-    private String buildTimedShellCommand(List<String> command, String statFilePath) {
-        return "/usr/bin/time -f '%e" + STAT_SEPARATOR + "%M' -o "
-                + shellEscape(statFilePath)
-                + " -- "
-                + buildShellCommand(command);
     }
 
     private String buildTimedShellCommandWithRedirect(
