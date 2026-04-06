@@ -1,21 +1,18 @@
 package com.shanwinx.judge_service.service;
 
-import com.shanwinx.judge_service.client.ProblemServiceClient;
 import com.shanwinx.judge_service.dto.JudgeResultDTO;
 import com.shanwinx.judge_service.dto.ListTestCaseDto;
-import com.shanwinx.judge_service.dto.ListTestCaseMockData;
 import com.shanwinx.judge_service.dto.SubmissionJobDTO;
 import com.shanwinx.judge_service.dto.Verdict;
+import com.shanwinx.judge_service.service.SandboxMetricsReader.Metrics;
 import com.shanwinx.judge_service.service.executor.LanguageExecutor;
 import com.shanwinx.judge_service.service.executor.LanguageExecutorResolver;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -29,131 +26,95 @@ public class JudgeExecutionService {
     private static final long RUN_TIMEOUT_BUFFER_MS = 500;
 
     private static final String TESTCASES_DIR = "testcases";
+    private static final String STAT_FILE = "stat";
     private static final String USER_OUTPUT_FILE = "output.user.out";
     private static final String EXPECTED_OUTPUT_FILE = "output.expected.out";
-    private static final String STAT_FILE = "stat";
-
-    private static final String TESTCASE_SOURCE_PROBLEM = "problem";
 
     private final JobWorkspaceService jobWorkspaceService;
     private final LanguageExecutorResolver languageExecutorResolver;
     private final DockerSandboxService dockerSandboxService;
     private final TestCaseService testCaseService;
-    private final ProblemServiceClient problemServiceClient;
-
-    @Value("${judge.testcases.source:mock}")
-    private String testcasesSource;
+    private final TestCaseLoader testCaseLoader;
+    private final OutputComparator outputComparator;
+    private final SandboxMetricsReader metricsReader;
 
     public JudgeResultDTO execute(SubmissionJobDTO job, Path workspacePath) {
-        return executeDetailed(job, workspacePath).getJudgeResult();
-    }
-
-    public ExecutionResult executeDetailed(SubmissionJobDTO job, Path workspacePath) {
         LanguageExecutor executor = languageExecutorResolver.resolve(job.getLanguage());
         if (executor == null) {
-            return executionResult(
-                    job.getId(),
-                    Verdict.SE,
-                    0,
-                    0,
-                    "Unsupported language: " + job.getLanguage());
+            return result(job.getId(), Verdict.SE, 0, 0, "Unsupported language: " + job.getLanguage());
         }
 
-        if (isProblemSource() && job.getProblemId() == null) {
-            return executionResult(job.getId(), Verdict.SE, 0, 0, "Missing problem id");
+        if (testCaseLoader.isProblemSource() && job.getProblemId() == null) {
+            return result(job.getId(), Verdict.SE, 0, 0, "Missing problem id");
         }
 
-        List<ListTestCaseDto> testcases = loadTestCases(job);
+        List<ListTestCaseDto> testcases = testCaseLoader.load(job);
         if (testcases.isEmpty()) {
-            return executionResult(job.getId(), Verdict.SE, 0, 0, "No test cases for problem");
+            return result(job.getId(), Verdict.SE, 0, 0, "No test cases for problem");
         }
 
-        Path sourceFilePath = jobWorkspaceService.writeSourceFile(workspacePath, job, executor.sourceFileName());
-        log.info("Wrote source file for submissionId={} to {}", job.getId(), sourceFilePath);
+        Path sourceFile = jobWorkspaceService.writeSourceFile(workspacePath, job, executor.sourceFileName());
+        log.info("Wrote source file for submissionId={} at {}", job.getId(), sourceFile);
 
         testCaseService.prepareTestCases(job.getId(), workspacePath, testcases);
 
         if (executor.requiresCompilation()) {
-            int compileExitCode =
-                    dockerSandboxService.compile(executor, workspacePath, sourceFilePath, COMPILE_TIMEOUT_MS);
-
-            if (compileExitCode == -1) {
-                return executionResult(job.getId(), Verdict.CE, 0, 0, "Compilation timeout");
-            }
-            if (compileExitCode != 0) {
-                return executionResult(job.getId(), Verdict.CE, 0, 0, "Compilation failed");
-            }
+            int exitCode = dockerSandboxService.compile(executor, workspacePath, sourceFile, COMPILE_TIMEOUT_MS);
+            if (exitCode == -1) return result(job.getId(), Verdict.CE, 0, 0, "Compilation timeout");
+            if (exitCode != 0)  return result(job.getId(), Verdict.CE, 0, 0, "Compilation failed");
         }
 
-        int maxTimeUsedMs = 0;
-        int maxMemoryUsedKb = 0;
+        return runTestCases(job.getId(), testcases, executor, workspacePath, sourceFile);
+    }
 
-        for (ListTestCaseDto testCase : testcases) {
-            String testId = testCase.getId().toString();
-            long runTimeoutMs = runTimeoutMsFor(testCase);
+    // --- private helpers ---
 
-            int runExitCode =
-                    dockerSandboxService.run(executor, workspacePath, sourceFilePath, testId, runTimeoutMs);
+    private JudgeResultDTO runTestCases(
+            UUID submissionId,
+            List<ListTestCaseDto> testcases,
+            LanguageExecutor executor,
+            Path workspacePath,
+            Path sourceFile) {
 
-            Path statPath = testCaseFile(workspacePath, testId, STAT_FILE);
-            SandboxMetrics metrics = readSandboxMetrics(statPath);
+        int maxTimeMs = 0;
+        int maxMemKb = 0;
+
+        for (ListTestCaseDto tc : testcases) {
+            String testId = tc.getId().toString();
+            long timeoutMs = resolveTimeout(tc);
+
+            int exitCode = dockerSandboxService.run(executor, workspacePath, sourceFile, testId, timeoutMs);
+
+            Metrics metrics = metricsReader.read(testCaseFile(workspacePath, testId, STAT_FILE));
             if (metrics != null) {
-                int elapsedMs = (int) Math.round(metrics.elapsedSeconds() * 1000.0);
-                int memKb = (int) metrics.maxRssKb();
-                maxTimeUsedMs = Math.max(maxTimeUsedMs, elapsedMs);
-                maxMemoryUsedKb = Math.max(maxMemoryUsedKb, memKb);
+                maxTimeMs = Math.max(maxTimeMs, metrics.elapsedMs());
+                maxMemKb  = Math.max(maxMemKb,  (int) metrics.maxRssKb());
             }
 
-            if (runExitCode == -1) {
-                return executionResult(
-                        job.getId(),
-                        Verdict.TLE,
-                        maxTimeUsedMs,
-                        maxMemoryUsedKb,
+            if (exitCode == -1) {
+                return result(submissionId, Verdict.TLE, maxTimeMs, maxMemKb,
                         "Time limit exceeded (test case " + testId + ")");
             }
-            if (runExitCode != 0) {
-                return executionResult(
-                        job.getId(),
-                        Verdict.RTE,
-                        maxTimeUsedMs,
-                        maxMemoryUsedKb,
+            if (exitCode != 0) {
+                return result(submissionId, Verdict.RTE, maxTimeMs, maxMemKb,
                         "Runtime error (test case " + testId + ")");
             }
 
-            if (testCase.getTimeLimit() != null
-                    && testCase.getTimeLimit() > 0
-                    && metrics != null) {
-                int elapsedMs = (int) Math.round(metrics.elapsedSeconds() * 1000.0);
-                if (elapsedMs > testCase.getTimeLimit()) {
-                    return executionResult(
-                            job.getId(),
-                            Verdict.TLE,
-                            maxTimeUsedMs,
-                            maxMemoryUsedKb,
-                            "Time limit exceeded (test case " + testId + ")");
-                }
+            if (metrics != null && isTimeLimitExceeded(tc, metrics)) {
+                return result(submissionId, Verdict.TLE, maxTimeMs, maxMemKb,
+                        "Time limit exceeded (test case " + testId + ")");
             }
 
-            if (testCase.getMemoryLimit() != null && testCase.getMemoryLimit() > 0 && metrics != null) {
-                long limitKb = testCase.getMemoryLimit().longValue() * 1024L;
-                if (metrics.maxRssKb() > limitKb) {
-                    return executionResult(
-                            job.getId(),
-                            Verdict.MLE,
-                            maxTimeUsedMs,
-                            maxMemoryUsedKb,
-                            "Memory limit exceeded (test case " + testId + ")");
-                }
+            if (metrics != null && isMemoryLimitExceeded(tc, metrics)) {
+                return result(submissionId, Verdict.MLE, maxTimeMs, maxMemKb,
+                        "Memory limit exceeded (test case " + testId + ")");
             }
 
             try {
-                if (!outputsMatch(workspacePath, testId)) {
-                    return executionResult(
-                            job.getId(),
-                            Verdict.WA,
-                            maxTimeUsedMs,
-                            maxMemoryUsedKb,
+                if (!outputComparator.matches(
+                        testCaseFile(workspacePath, testId, USER_OUTPUT_FILE),
+                        testCaseFile(workspacePath, testId, EXPECTED_OUTPUT_FILE))) {
+                    return result(submissionId, Verdict.WA, maxTimeMs, maxMemKb,
                             "Wrong answer (test case " + testId + ")");
                 }
             } catch (IOException e) {
@@ -161,24 +122,23 @@ public class JudgeExecutionService {
             }
         }
 
-        return executionResult(job.getId(), Verdict.AC, maxTimeUsedMs, maxMemoryUsedKb, null);
+        return result(submissionId, Verdict.AC, maxTimeMs, maxMemKb, null);
     }
 
-    private boolean isProblemSource() {
-        return testcasesSource != null && TESTCASE_SOURCE_PROBLEM.equalsIgnoreCase(testcasesSource.trim());
+    private static boolean isTimeLimitExceeded(ListTestCaseDto tc, Metrics metrics) {
+        return tc.getTimeLimit() != null && tc.getTimeLimit() > 0
+                && metrics.elapsedMs() > tc.getTimeLimit();
     }
 
-    private List<ListTestCaseDto> loadTestCases(SubmissionJobDTO job) {
-        if (isProblemSource()) {
-            List<ListTestCaseDto> fromApi = problemServiceClient.getTestCasesByProblemId(job.getProblemId());
-            return fromApi != null ? fromApi : List.of();
-        }
-        return ListTestCaseMockData.sample();
+    private static boolean isMemoryLimitExceeded(ListTestCaseDto tc, Metrics metrics) {
+        if (tc.getMemoryLimit() == null || tc.getMemoryLimit() <= 0) return false;
+        long limitKb = tc.getMemoryLimit().longValue() * 1024L;
+        return metrics.maxRssKb() > limitKb;
     }
 
-    private static long runTimeoutMsFor(ListTestCaseDto testCase) {
-        int limit = testCase.getTimeLimit() != null && testCase.getTimeLimit() > 0
-                ? testCase.getTimeLimit()
+    private static long resolveTimeout(ListTestCaseDto tc) {
+        int limit = (tc.getTimeLimit() != null && tc.getTimeLimit() > 0)
+                ? tc.getTimeLimit()
                 : (int) DEFAULT_RUN_TIMEOUT_MS;
         return Math.min(MAX_RUN_TIMEOUT_MS, limit + RUN_TIMEOUT_BUFFER_MS);
     }
@@ -187,77 +147,13 @@ public class JudgeExecutionService {
         return workspacePath.resolve(TESTCASES_DIR).resolve(testId).resolve(fileName);
     }
 
-    private static boolean outputsMatch(Path workspacePath, String testId) throws IOException {
-        Path userOut = testCaseFile(workspacePath, testId, USER_OUTPUT_FILE);
-        Path expectedOut = testCaseFile(workspacePath, testId, EXPECTED_OUTPUT_FILE);
-        String actual = Files.readString(userOut);
-        String expected = Files.readString(expectedOut);
-        return normalizeOutput(actual).equals(normalizeOutput(expected));
-    }
-
-    static String normalizeOutput(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        return raw.replace("\r\n", "\n").replace('\r', '\n').stripTrailing();
-    }
-
-    private static SandboxMetrics readSandboxMetrics(Path statFile) {
-        try {
-            if (!Files.isRegularFile(statFile)) {
-                return null;
-            }
-            String content = Files.readString(statFile).trim();
-            if (content.isEmpty()) {
-                return null;
-            }
-            int sep = content.indexOf('|');
-            if (sep < 0) {
-                return null;
-            }
-            double elapsed = Double.parseDouble(content.substring(0, sep).trim());
-            long rssKb = Long.parseLong(content.substring(sep + 1).trim());
-            return new SandboxMetrics(elapsed, rssKb);
-        } catch (IOException | NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static ExecutionResult executionResult(
-            UUID submissionId, Verdict verdict, int timeUsedMs, int memoryUsedKb, String errorDetails) {
-        JudgeResultDTO dto = JudgeResultDTO.builder()
-                .submissionId(submissionId)
+    private static JudgeResultDTO result(UUID id, Verdict verdict, int timeMs, int memKb, String error) {
+        return JudgeResultDTO.builder()
+                .submissionId(id)
                 .verdict(verdict)
-                .timeUsed(timeUsedMs)
-                .memoryUsed(memoryUsedKb)
-                .errorDetails(errorDetails)
+                .timeUsed(timeMs)
+                .memoryUsed(memKb)
+                .errorDetails(error)
                 .build();
-        return new ExecutionResult(dto, "", errorDetails != null ? errorDetails : "");
-    }
-
-    private record SandboxMetrics(double elapsedSeconds, long maxRssKb) {}
-
-    public static final class ExecutionResult {
-        private final JudgeResultDTO judgeResult;
-        private final String stdout;
-        private final String stderr;
-
-        public ExecutionResult(JudgeResultDTO judgeResult, String stdout, String stderr) {
-            this.judgeResult = judgeResult;
-            this.stdout = stdout;
-            this.stderr = stderr;
-        }
-
-        public JudgeResultDTO getJudgeResult() {
-            return judgeResult;
-        }
-
-        public String getStdout() {
-            return stdout;
-        }
-
-        public String getStderr() {
-            return stderr;
-        }
     }
 }
