@@ -227,7 +227,7 @@ components:
       properties:
         error:
           type: string
-          example: Problem not found: uuid
+          example: "Problem not found: uuid"
 
     TestCaseResponse:
       type: object
