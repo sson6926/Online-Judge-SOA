@@ -9,10 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import org.springframework.beans.factory.annotation.Value;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,12 +22,10 @@ public class JudgeExecutionService {
 
     private static final long COMPILE_TIMEOUT_MS = 10_000;
     private static final long RUN_TIMEOUT_MS = 5_000;
-    private static final String STAT_SEPARATOR = "|";
 
     private final JobWorkspaceService jobWorkspaceService;
     private final LanguageExecutorResolver languageExecutorResolver;
-    @Value("${judge.sandbox.image:judge-sandbox:latest}")
-    private String sandboxImage;
+    private final DockerSandboxService dockerSandboxService;
 
     public JudgeResultDTO execute(SubmissionJobDTO job, Path workspacePath) {
         return executeDetailed(job, workspacePath).getJudgeResult();
@@ -116,7 +112,7 @@ public class JudgeExecutionService {
 
         String statFileName = phase + ".stat";
         Path statFilePath = workingDirectory.resolve(statFileName);
-        List<String> dockerCommand = buildDockerCommand(command, workingDirectory, statFileName);
+        List<String> dockerCommand = dockerSandboxService.buildDockerCommand(command, workingDirectory, statFileName);
         try {
             ProcessBuilder builder = new ProcessBuilder(dockerCommand);
 
@@ -139,52 +135,6 @@ public class JudgeExecutionService {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Command interrupted: " + String.join(" ", dockerCommand), e);
         }
-    }
-
-    private List<String> buildDockerCommand(List<String> command, Path workingDirectory, String statFileName) {
-        String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
-        String shellCommand = buildTimedShellCommand(command, "/workspace/" + statFileName);
-        List<String> dockerCommand = new ArrayList<>();
-        dockerCommand.add("docker");
-        dockerCommand.add("run");
-        dockerCommand.add("--rm");
-        dockerCommand.add("--network");
-        dockerCommand.add("none");
-        dockerCommand.add("-v");
-        dockerCommand.add(workspacePath + ":/workspace");
-        dockerCommand.add("-w");
-        dockerCommand.add("/workspace");
-        dockerCommand.add("--entrypoint");
-        dockerCommand.add("/bin/bash");
-        dockerCommand.add(sandboxImage);
-        dockerCommand.add("-lc");
-        dockerCommand.add(shellCommand);
-        return dockerCommand;
-    }
-
-    private String buildTimedShellCommand(List<String> command, String statFilePath) {
-        return "/usr/bin/time -f '%e" + STAT_SEPARATOR + "%M' -o "
-                + shellEscape(statFilePath)
-                + " -- "
-                + buildShellCommand(command);
-    }
-
-    private String buildShellCommand(List<String> command) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < command.size(); i++) {
-            if (i > 0) {
-                builder.append(' ');
-            }
-            builder.append(shellEscape(command.get(i)));
-        }
-        return builder.toString();
-    }
-
-    private String shellEscape(String value) {
-        if (value == null) {
-            return "''";
-        }
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private String trimError(String message) {
