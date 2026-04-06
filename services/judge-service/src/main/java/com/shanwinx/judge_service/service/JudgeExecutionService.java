@@ -3,17 +3,14 @@ package com.shanwinx.judge_service.service;
 import com.shanwinx.judge_service.dto.JudgeResultDTO;
 import com.shanwinx.judge_service.dto.SubmissionJobDTO;
 import com.shanwinx.judge_service.dto.Verdict;
-import com.shanwinx.judge_service.service.executor.CppLanguageExecutor;
-import com.shanwinx.judge_service.service.executor.JavaLanguageExecutor;
 import com.shanwinx.judge_service.service.executor.LanguageExecutor;
-import com.shanwinx.judge_service.service.executor.PythonLanguageExecutor;
+import com.shanwinx.judge_service.service.executor.LanguageExecutorResolver;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +27,7 @@ public class JudgeExecutionService {
     private static final String STAT_SEPARATOR = "|";
 
     private final JobWorkspaceService jobWorkspaceService;
-    private final JavaLanguageExecutor javaLanguageExecutor;
-    private final PythonLanguageExecutor pythonLanguageExecutor;
-    private final CppLanguageExecutor cppLanguageExecutor;
+    private final LanguageExecutorResolver languageExecutorResolver;
     @Value("${judge.sandbox.image:judge-sandbox:latest}")
     private String sandboxImage;
 
@@ -41,7 +36,7 @@ public class JudgeExecutionService {
     }
 
     public ExecutionResult executeDetailed(SubmissionJobDTO job, Path workspacePath) {
-        LanguageExecutor executor = resolveExecutor(job.getLanguage());
+        LanguageExecutor executor = languageExecutorResolver.resolve(job.getLanguage());
         if (executor == null) {
             JudgeResultDTO result = JudgeResultDTO.builder()
                     .submissionId(job.getId())
@@ -112,20 +107,6 @@ public class JudgeExecutionService {
                 .errorDetails(runOutcome.exitCode == 0 ? null : trimError(runOutcome.stderr))
                 .build();
         return new ExecutionResult(result, runOutcome.stdout, runOutcome.stderr);
-    }
-
-    private LanguageExecutor resolveExecutor(String language) {
-        if (language == null) {
-            return null;
-        }
-
-        String normalized = language.trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "java" -> javaLanguageExecutor;
-            case "python", "py" -> pythonLanguageExecutor;
-            case "cpp", "c++" -> cppLanguageExecutor;
-            default -> null;
-        };
     }
 
     private ProcessOutcome runCommand(List<String> command, Path workingDirectory, long timeoutMs, String phase) {
