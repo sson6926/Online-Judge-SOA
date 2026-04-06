@@ -1,12 +1,15 @@
 package com.shanwinx.judge_service.service;
 
 import com.shanwinx.judge_service.dto.JudgeResultDTO;
+import com.shanwinx.judge_service.dto.ListTestCaseDto;
+import com.shanwinx.judge_service.dto.ListTestCaseMockData;
 import com.shanwinx.judge_service.dto.SubmissionJobDTO;
 import com.shanwinx.judge_service.dto.Verdict;
 import com.shanwinx.judge_service.service.executor.LanguageExecutor;
 import com.shanwinx.judge_service.service.executor.LanguageExecutorResolver;
 import java.nio.file.Path;
 import java.util.List;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +25,7 @@ public class JudgeExecutionService {
     private final JobWorkspaceService jobWorkspaceService;
     private final LanguageExecutorResolver languageExecutorResolver;
     private final DockerSandboxService dockerSandboxService;
+    private final TestCaseService testCaseService;
 
     public JudgeResultDTO execute(SubmissionJobDTO job, Path workspacePath) {
         return executeDetailed(job, workspacePath).getJudgeResult();
@@ -39,108 +43,99 @@ public class JudgeExecutionService {
                     .build();
             return new ExecutionResult(result, "", "Unsupported language: " + job.getLanguage());
         }
-
         Path sourceFilePath = jobWorkspaceService.writeSourceFile(workspacePath, job, executor.sourceFileName());
         log.info("Wrote source file for submissionId={} to {}", job.getId(), sourceFilePath);
 
         if (executor.requiresCompilation()) {
-            ProcessOutcome compileOutcome = runCommand(
-                    executor.compileCommand(workspacePath, sourceFilePath),
+            int compileExitCode = runCompileCommand(
+                    executor,
                     workspacePath,
-                COMPILE_TIMEOUT_MS,
-                "compile");
+                    sourceFilePath,
+                    COMPILE_TIMEOUT_MS);
 
-            if (compileOutcome.timedOut) {
+            if (compileExitCode == -1) {
                 JudgeResultDTO result = JudgeResultDTO.builder()
                         .submissionId(job.getId())
                         .verdict(Verdict.CE)
-                .timeUsed(compileOutcome.timeUsed)
-                .memoryUsed(compileOutcome.memoryUsed)
+                        .timeUsed(0)
+                        .memoryUsed(0)
                         .errorDetails("Compilation timeout")
                         .build();
-                return new ExecutionResult(result, compileOutcome.stdout, compileOutcome.stderr);
+                return new ExecutionResult(result, "", "");
             }
 
-            if (compileOutcome.exitCode != 0) {
+            if (compileExitCode != 0) {
                 JudgeResultDTO result = JudgeResultDTO.builder()
                         .submissionId(job.getId())
                         .verdict(Verdict.CE)
-                .timeUsed(compileOutcome.timeUsed)
-                .memoryUsed(compileOutcome.memoryUsed)
-                        .errorDetails(trimError(compileOutcome.stderr))
+                        .timeUsed(0)
+                        .memoryUsed(0)
+                        .errorDetails("Compilation failed")
                         .build();
-                return new ExecutionResult(result, compileOutcome.stdout, compileOutcome.stderr);
+                return new ExecutionResult(result, "", "");
             }
         }
 
-        ProcessOutcome runOutcome = runCommand(
-            executor.runCommand(workspacePath, sourceFilePath),
-            workspacePath,
-            RUN_TIMEOUT_MS,
-            "run");
+        List<ListTestCaseDto> testcases = ListTestCaseMockData.sample();
 
-        if (runOutcome.timedOut) {
-            JudgeResultDTO result = JudgeResultDTO.builder()
-                    .submissionId(job.getId())
-                    .verdict(Verdict.TLE)
-                .timeUsed(runOutcome.timeUsed)
-                .memoryUsed(runOutcome.memoryUsed)
-                    .errorDetails("Execution timeout")
-                    .build();
-            return new ExecutionResult(result, runOutcome.stdout, runOutcome.stderr);
+        for (ListTestCaseDto testCase : testcases) {
+            testCaseService.prepareTestCase(job.getId(), workspacePath, testCase);
+
+            int runExitCode = runCommand(
+                    executor,
+                    workspacePath,
+                    sourceFilePath,
+                    testCase.getId().toString(),
+                    RUN_TIMEOUT_MS);
+
+            if (runExitCode == -1) {
+                JudgeResultDTO result = JudgeResultDTO.builder()
+                        .submissionId(job.getId())
+                        .verdict(Verdict.TLE)
+                        .timeUsed(0)
+                        .memoryUsed(0)
+                        .errorDetails("Execution timeout")
+                        .build();
+                return new ExecutionResult(result, "", "");
+            }
+
+            if (runExitCode != 0) {
+                JudgeResultDTO result = JudgeResultDTO.builder()
+                        .submissionId(job.getId())
+                        .verdict(Verdict.RTE)
+                        .timeUsed(0)
+                        .memoryUsed(0)
+                        .errorDetails("Runtime error")
+                        .build();
+                return new ExecutionResult(result, "", "");
+            }
         }
 
-        Verdict verdict = runOutcome.exitCode == 0 ? Verdict.AC : Verdict.RTE;
         JudgeResultDTO result = JudgeResultDTO.builder()
                 .submissionId(job.getId())
-                .verdict(verdict)
-            .timeUsed(runOutcome.timeUsed)
-            .memoryUsed(runOutcome.memoryUsed)
-                .errorDetails(runOutcome.exitCode == 0 ? null : trimError(runOutcome.stderr))
+                .verdict(Verdict.AC)
+                .timeUsed(0)
+                .memoryUsed(0)
+                .errorDetails(null)
                 .build();
-        return new ExecutionResult(result, runOutcome.stdout, runOutcome.stderr);
+        return new ExecutionResult(result, "", "");
     }
 
-    private ProcessOutcome runCommand(List<String> command, Path workingDirectory, long timeoutMs, String phase) {
-        DockerSandboxService.ProcessOutcome outcome = dockerSandboxService.executeCommand(command, workingDirectory, timeoutMs, phase);
-        return new ProcessOutcome(
-                outcome.getExitCode(),
-                outcome.getStdout(),
-                outcome.getStderr(),
-                outcome.isTimedOut(),
-                outcome.getTimeUsed(),
-                outcome.getMemoryUsed());
+    private int runCompileCommand(
+            LanguageExecutor executor,
+            Path workingDirectory,
+            Path sourceFilePath,
+            long timeoutMs) {
+        return dockerSandboxService.compile(executor, workingDirectory, sourceFilePath, timeoutMs);
     }
 
-    private String trimError(String message) {
-        if (message == null || message.isBlank()) {
-            return "Execution failed";
-        }
-
-        String normalized = message.strip();
-        int maxLength = 2000;
-        if (normalized.length() <= maxLength) {
-            return normalized;
-        }
-        return normalized.substring(0, maxLength);
-    }
-
-    private static final class ProcessOutcome {
-        private final int exitCode;
-        private final String stdout;
-        private final String stderr;
-        private final boolean timedOut;
-        private final int timeUsed;
-        private final int memoryUsed;
-
-        private ProcessOutcome(int exitCode, String stdout, String stderr, boolean timedOut, int timeUsed, int memoryUsed) {
-            this.exitCode = exitCode;
-            this.stdout = stdout;
-            this.stderr = stderr;
-            this.timedOut = timedOut;
-            this.timeUsed = timeUsed;
-            this.memoryUsed = memoryUsed;
-        }
+    private int runCommand(
+            LanguageExecutor executor,
+            Path workingDirectory,
+            Path sourceFilePath,
+            String test,
+            long timeoutMs) {
+        return dockerSandboxService.run(executor, workingDirectory, sourceFilePath, test, timeoutMs);
     }
 
     public static final class ExecutionResult {

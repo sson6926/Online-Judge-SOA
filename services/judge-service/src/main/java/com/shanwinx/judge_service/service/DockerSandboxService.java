@@ -1,49 +1,127 @@
 package com.shanwinx.judge_service.service;
 
+import com.shanwinx.judge_service.service.executor.LanguageExecutor;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
-@Slf4j
 public class DockerSandboxService {
 
     private static final String STAT_SEPARATOR = "|";
+    private static final String COMPILE_LOG_FILE = "compile.log";
+    private static final String COMPILE_ERROR_FILE = "compile.err";
+    private static final String RUN_STAT_FILE = "stat";
+    private static final String INPUT_FILE = "input.in";
+    private static final String USER_OUTPUT_FILE = "output.user.out";
+    private static final String RUN_ERROR_FILE = "error.log";
 
     @Value("${judge.sandbox.image:judge-sandbox:latest}")
     private String sandboxImage;
 
-    public ProcessOutcome executeCommand(List<String> command, Path workingDirectory, long timeoutMs, String phase) {
+    public int compile(LanguageExecutor executor, Path workingDirectory, Path sourceFilePath, long timeoutMs) {
+        List<String> command = executor == null ? null : executor.compileCommand(workingDirectory, sourceFilePath);
         if (command == null || command.isEmpty()) {
-            return new ProcessOutcome(0, "", "", false, 0, 0);
+            return 0;
         }
 
-        String statFileName = phase + ".stat";
-        Path statFilePath = workingDirectory.resolve(statFileName);
-        List<String> dockerCommand = buildDockerCommand(command, workingDirectory, statFileName);
+        String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
+        List<String> dockerCommand = new ArrayList<>();
+        dockerCommand.add("docker");
+        dockerCommand.add("run");
+        dockerCommand.add("-i");
+        dockerCommand.add("--rm");
+        dockerCommand.add("-v");
+        dockerCommand.add(workspacePath + ":/workspace");
+        dockerCommand.add("-w");
+        dockerCommand.add("/workspace");
+        dockerCommand.add(sandboxImage);
+        dockerCommand.addAll(command);
+
+        Path compileLog = workingDirectory.resolve(COMPILE_LOG_FILE);
+        Path compileErr = workingDirectory.resolve(COMPILE_ERROR_FILE);
+
+        try {
+            Files.writeString(compileLog, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(compileErr, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot create compile log files", e);
+        }
+
+        return executeDockerCommand(dockerCommand, timeoutMs, compileLog, compileErr);
+    }
+
+    public int run(LanguageExecutor executor, Path workingDirectory, Path sourceFilePath, String test, long timeoutMs) {
+        List<String> command = executor == null ? null : executor.runCommand(workingDirectory, sourceFilePath);
+        if (command == null || command.isEmpty()) {
+            return 0;
+        }
+
+        Path testDirectory = workingDirectory.resolve("testcases").resolve(test == null || test.isBlank() ? "default" : test);
+        Path inputFilePath = testDirectory.resolve(INPUT_FILE);
+        Path userOutputFilePath = testDirectory.resolve(USER_OUTPUT_FILE);
+        Path statFilePath = testDirectory.resolve(RUN_STAT_FILE);
+        Path runErrFilePath = testDirectory.resolve(RUN_ERROR_FILE);
+
+        try {
+            Files.createDirectories(testDirectory);
+            Files.writeString(userOutputFilePath, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(runErrFilePath, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(statFilePath, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot create run artifacts in " + testDirectory, e);
+        }
+
+        String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
+        String shellCommand = buildTimedShellCommandWithRedirect(
+                command,
+                toContainerPath(workingDirectory, statFilePath),
+                toContainerPath(workingDirectory, inputFilePath),
+                toContainerPath(workingDirectory, userOutputFilePath),
+                toContainerPath(workingDirectory, runErrFilePath));
+
+        List<String> dockerCommand = new ArrayList<>();
+        dockerCommand.add("docker");
+        dockerCommand.add("run");
+        dockerCommand.add("-i");
+        dockerCommand.add("--rm");
+        dockerCommand.add("-v");
+        dockerCommand.add(workspacePath + ":/workspace");
+        dockerCommand.add("-w");
+        dockerCommand.add("/workspace");
+        dockerCommand.add(sandboxImage);
+        dockerCommand.add("sh");
+        dockerCommand.add("-c");
+        dockerCommand.add(shellCommand);
+
+        return executeDockerCommand(dockerCommand, timeoutMs, null, null);
+    }
+
+    private int executeDockerCommand(List<String> dockerCommand, long timeoutMs, Path outputFile, Path errorFile) {
         try {
             ProcessBuilder builder = new ProcessBuilder(dockerCommand);
+            if (outputFile != null) {
+                builder.redirectOutput(outputFile.toFile());
+            }
+            if (errorFile != null) {
+                builder.redirectError(errorFile.toFile());
+            }
 
             Process process = builder.start();
             boolean completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
 
             if (!completed) {
                 process.destroyForcibly();
-                ExecutionStat stat = parseExecutionStat(statFilePath);
-                return new ProcessOutcome(-1, "", "timeout", true, stat.getTimeUsed(), stat.getMemoryUsed());
+                return -1;
             }
 
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            ExecutionStat stat = parseExecutionStat(statFilePath);
-            return new ProcessOutcome(process.exitValue(), stdout, stderr, false, stat.getTimeUsed(), stat.getMemoryUsed());
+            return process.exitValue();
         } catch (IOException e) {
             throw new IllegalStateException("Cannot execute command in sandbox: " + String.join(" ", dockerCommand), e);
         } catch (InterruptedException e) {
@@ -52,25 +130,11 @@ public class DockerSandboxService {
         }
     }
 
-    public List<String> buildDockerCommand(List<String> command, Path workingDirectory, String statFileName) {
-        String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
-        String shellCommand = buildTimedShellCommand(command, "/workspace/" + statFileName);
-        List<String> dockerCommand = new ArrayList<>();
-        dockerCommand.add("docker");
-        dockerCommand.add("run");
-        dockerCommand.add("--rm");
-        dockerCommand.add("--network");
-        dockerCommand.add("none");
-        dockerCommand.add("-v");
-        dockerCommand.add(workspacePath + ":/workspace");
-        dockerCommand.add("-w");
-        dockerCommand.add("/workspace");
-        dockerCommand.add("--entrypoint");
-        dockerCommand.add("/bin/bash");
-        dockerCommand.add(sandboxImage);
-        dockerCommand.add("-lc");
-        dockerCommand.add(shellCommand);
-        return dockerCommand;
+    private String toContainerPath(Path workingDirectory, Path statFilePath) {
+        Path absoluteWorkspace = workingDirectory.toAbsolutePath().normalize();
+        Path absoluteStat = statFilePath.toAbsolutePath().normalize();
+        Path relative = absoluteWorkspace.relativize(absoluteStat);
+        return "/workspace/" + relative.toString().replace('\\', '/');
     }
 
     private String buildTimedShellCommand(List<String> command, String statFilePath) {
@@ -78,6 +142,24 @@ public class DockerSandboxService {
                 + shellEscape(statFilePath)
                 + " -- "
                 + buildShellCommand(command);
+    }
+
+    private String buildTimedShellCommandWithRedirect(
+            List<String> command,
+            String statFilePath,
+            String inputFilePath,
+            String outputFilePath,
+            String errorFilePath) {
+        return "/usr/bin/time -f '%e" + STAT_SEPARATOR + "%M' -o "
+                + shellEscape(statFilePath)
+                + " -- "
+                + buildShellCommand(command)
+                + " < "
+                + shellEscape(inputFilePath)
+                + " > "
+                + shellEscape(outputFilePath)
+                + " 2> "
+                + shellEscape(errorFilePath);
     }
 
     private String buildShellCommand(List<String> command) {
@@ -96,107 +178,5 @@ public class DockerSandboxService {
             return "''";
         }
         return "'" + value.replace("'", "'\"'\"'") + "'";
-    }
-
-    public ExecutionStat parseExecutionStat(Path statFilePath) {
-        if (statFilePath == null || !Files.exists(statFilePath)) {
-            return new ExecutionStat(0, 0);
-        }
-
-        try {
-            String statRaw = Files.readString(statFilePath, StandardCharsets.UTF_8).trim();
-            if (statRaw.isBlank()) {
-                return new ExecutionStat(0, 0);
-            }
-
-            String[] parts = statRaw.split("\\|");
-            if (parts.length < 2) {
-                return new ExecutionStat(0, 0);
-            }
-
-            int timeUsed = parseSecondsToMillis(parts[0]);
-            int memoryUsed = parseInteger(parts[1]);
-            return new ExecutionStat(timeUsed, memoryUsed);
-        } catch (IOException ex) {
-            log.warn("Cannot read stat file {}", statFilePath, ex);
-            return new ExecutionStat(0, 0);
-        }
-    }
-
-    private int parseSecondsToMillis(String secondsText) {
-        try {
-            double seconds = Double.parseDouble(secondsText.trim());
-            return (int) Math.max(0, Math.round(seconds * 1000));
-        } catch (NumberFormatException ex) {
-            return 0;
-        }
-    }
-
-    private int parseInteger(String value) {
-        try {
-            return Math.max(0, Integer.parseInt(value.trim()));
-        } catch (NumberFormatException ex) {
-            return 0;
-        }
-    }
-
-    public static final class ProcessOutcome {
-        private final int exitCode;
-        private final String stdout;
-        private final String stderr;
-        private final boolean timedOut;
-        private final int timeUsed;
-        private final int memoryUsed;
-
-        public ProcessOutcome(int exitCode, String stdout, String stderr, boolean timedOut, int timeUsed, int memoryUsed) {
-            this.exitCode = exitCode;
-            this.stdout = stdout;
-            this.stderr = stderr;
-            this.timedOut = timedOut;
-            this.timeUsed = timeUsed;
-            this.memoryUsed = memoryUsed;
-        }
-
-        public int getExitCode() {
-            return exitCode;
-        }
-
-        public String getStdout() {
-            return stdout;
-        }
-
-        public String getStderr() {
-            return stderr;
-        }
-
-        public boolean isTimedOut() {
-            return timedOut;
-        }
-
-        public int getTimeUsed() {
-            return timeUsed;
-        }
-
-        public int getMemoryUsed() {
-            return memoryUsed;
-        }
-    }
-
-    public static final class ExecutionStat {
-        private final int timeUsed;
-        private final int memoryUsed;
-
-        public ExecutionStat(int timeUsed, int memoryUsed) {
-            this.timeUsed = timeUsed;
-            this.memoryUsed = memoryUsed;
-        }
-
-        public int getTimeUsed() {
-            return timeUsed;
-        }
-
-        public int getMemoryUsed() {
-            return memoryUsed;
-        }
     }
 }
