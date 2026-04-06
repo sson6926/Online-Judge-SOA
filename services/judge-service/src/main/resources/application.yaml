@@ -31,7 +31,8 @@ eureka:
 judge:
   workspace:
     root: ${JUDGE_WORKSPACE_ROOT:/tmp/judge-jobs}
-    cleanup-enabled: ${JUDGE_WORKSPACE_CLEANUP:true}
+    host-root: ${JUDGE_WORKSPACE_HOST_ROOT:}
+    cleanup-enabled: false
   testcases:
     source: ${JUDGE_TESTCASES_SOURCE:mock}
 
