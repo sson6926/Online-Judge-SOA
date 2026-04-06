@@ -79,6 +79,12 @@ public class TestCaseService {
             throw new IllegalStateException("Interrupted while downloading testcase file", e);
         }
 
+        int status = response.statusCode();
+        if (status < 200 || status >= 300) {
+            throw new IllegalStateException(
+                    "Download failed HTTP " + status + " for url=" + url + ", path=" + outputPath);
+        }
+
         Files.write(outputPath, response.body(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 }
