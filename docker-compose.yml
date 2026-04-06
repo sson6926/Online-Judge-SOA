@@ -137,6 +137,37 @@ services:
     networks:
       - app-network
 
+  # ─── Judge Sandbox Image (build-only, no running container) ─────────────────
+  judge-sandbox:
+    build:
+      context: ./services/judge-service/sandbox
+      dockerfile: Dockerfile
+    image: judge-sandbox:latest
+    # This service exists only to build and tag the sandbox image.
+    # judge-service spawns it via `docker run` for each submission.
+    profiles:
+      - build-sandbox
+
+  # ─── Judge Service ────────────────────────────────
+  judge-service:
+    build: ./services/judge-service
+    ports:
+      - "5003:5003"
+    env_file:
+      - .env
+    environment:
+      JUDGE_TESTCASES_SOURCE: ${JUDGE_TESTCASES_SOURCE:-problem}
+      PROBLEM_SERVICE_URL: http://problem-service:5001
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - judge-workspaces:/tmp/judge-jobs
+    depends_on:
+      - rabbitmq
+      - problem-service
+      - discovery
+    networks:
+      - app-network
+
   # ─── Infrastructure ──────────────────────────────
   redis:
     image: redis:7-alpine
@@ -165,3 +196,4 @@ volumes:
   db-problem-data:
   db-submission-data:
   minio-data:
+  judge-workspaces:
