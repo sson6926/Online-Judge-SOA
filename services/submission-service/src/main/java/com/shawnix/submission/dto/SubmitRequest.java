@@ -12,7 +12,7 @@ public class SubmitRequest {
     @NotNull(message = "problem_id không được để trống")
     private UUID problemId;
 
-    @NotNull(message = "user_id không được để trống")
+    // userId is injected by the gateway via X-User-Id header, not from request body
     private UUID userId;
 
     @NotBlank(message = "code không được để trống")

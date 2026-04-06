@@ -25,6 +25,23 @@ public class DockerSandboxService {
     @Value("${judge.sandbox.image:judge-sandbox:latest}")
     private String sandboxImage;
 
+    @Value("${judge.workspace.root:/tmp/judge-jobs}")
+    private String containerWorkspaceRoot;
+
+    @Value("${judge.workspace.host-root:}")
+    private String hostWorkspaceRoot;
+
+    /**
+     * Returns the host-side path for a given container workspace path.
+     * Needed because docker run -v requires host paths, not container-internal paths.
+     */
+    private String toHostPath(String containerPath) {
+        if (hostWorkspaceRoot == null || hostWorkspaceRoot.isBlank()) {
+            return containerPath; // running on host directly, paths are the same
+        }
+        return containerPath.replace(containerWorkspaceRoot, hostWorkspaceRoot);
+    }
+
     public int compile(LanguageExecutor executor, Path workingDirectory, Path sourceFilePath, long timeoutMs) {
         List<String> command = executor == null ? null : executor.compileCommand(workingDirectory, sourceFilePath);
         if (command == null || command.isEmpty()) {
@@ -32,13 +49,13 @@ public class DockerSandboxService {
         }
 
         String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
-        String shellCommand = buildShellCommand(command);
+        String shellCommand = buildShellCommand(command) + " && chmod +x main 2>/dev/null || true";
         List<String> dockerCommand = new ArrayList<>();
         dockerCommand.add("docker");
         dockerCommand.add("run");
         dockerCommand.add("--rm");
         dockerCommand.add("-v");
-        dockerCommand.add(workspacePath + ":/workspace");
+        dockerCommand.add(toHostPath(workspacePath) + ":/workspace");
         dockerCommand.add("-w");
         dockerCommand.add("/workspace");
         dockerCommand.add("--entrypoint");
@@ -95,7 +112,7 @@ public class DockerSandboxService {
         dockerCommand.add("-i");
         dockerCommand.add("--rm");
         dockerCommand.add("-v");
-        dockerCommand.add(workspacePath + ":/workspace");
+        dockerCommand.add(toHostPath(workspacePath) + ":/workspace");
         dockerCommand.add("-w");
         dockerCommand.add("/workspace");
         dockerCommand.add("--entrypoint");

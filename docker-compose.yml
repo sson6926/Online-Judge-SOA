@@ -158,9 +158,10 @@ services:
     environment:
       JUDGE_TESTCASES_SOURCE: ${JUDGE_TESTCASES_SOURCE:-problem}
       PROBLEM_SERVICE_URL: http://problem-service:5001
+      JUDGE_WORKSPACE_HOST_ROOT: /tmp/judge-jobs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - judge-workspaces:/tmp/judge-jobs
+      - /tmp/judge-jobs:/tmp/judge-jobs
     depends_on:
       - rabbitmq
       - problem-service

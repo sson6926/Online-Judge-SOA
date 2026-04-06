@@ -18,7 +18,14 @@ public class SubmissionController {
     private final SubmissionService submissionService;
 
     @PostMapping
-    public ResponseEntity<Submission> submit(@Valid @RequestBody SubmitRequest request) {
+    public ResponseEntity<Submission> submit(
+            @Valid @RequestBody SubmitRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId) {
+
+        if (xUserId != null && !xUserId.isBlank()) {
+            request.setUserId(UUID.fromString(xUserId));
+        }
+
         Submission result = submissionService.submit(request);
         return ResponseEntity.accepted().body(result);
     }
