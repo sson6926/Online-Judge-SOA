@@ -1,7 +1,6 @@
 package com.shanwinx.judge_service.service;
 
 import com.shanwinx.judge_service.dto.JudgeResultDTO;
-import com.shanwinx.judge_service.dto.RunCodeResponseDTO;
 import com.shanwinx.judge_service.dto.SubmissionJobDTO;
 import com.shanwinx.judge_service.dto.Verdict;
 import com.shanwinx.judge_service.service.executor.CppLanguageExecutor;
@@ -113,19 +112,6 @@ public class JudgeExecutionService {
                 .errorDetails(runOutcome.exitCode == 0 ? null : trimError(runOutcome.stderr))
                 .build();
         return new ExecutionResult(result, runOutcome.stdout, runOutcome.stderr);
-    }
-
-    public RunCodeResponseDTO toRunCodeResponse(ExecutionResult executionResult) {
-        JudgeResultDTO result = executionResult.getJudgeResult();
-        return RunCodeResponseDTO.builder()
-                .submissionId(result.getSubmissionId())
-                .verdict(result.getVerdict())
-                .timeUsed(result.getTimeUsed())
-                .memoryUsed(result.getMemoryUsed())
-                .errorDetails(result.getErrorDetails())
-                .stdout(executionResult.getStdout())
-                .stderr(executionResult.getStderr())
-                .build();
     }
 
     private LanguageExecutor resolveExecutor(String language) {
