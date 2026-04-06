@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,35 @@ public class DockerSandboxService {
     private String sandboxImage;
 
     public ProcessOutcome executeCommand(List<String> command, Path workingDirectory, long timeoutMs, String phase) {
-        return new ProcessOutcome(0, "", "", false, 0, 0);
+        if (command == null || command.isEmpty()) {
+            return new ProcessOutcome(0, "", "", false, 0, 0);
+        }
+
+        String statFileName = phase + ".stat";
+        Path statFilePath = workingDirectory.resolve(statFileName);
+        List<String> dockerCommand = buildDockerCommand(command, workingDirectory, statFileName);
+        try {
+            ProcessBuilder builder = new ProcessBuilder(dockerCommand);
+
+            Process process = builder.start();
+            boolean completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+
+            if (!completed) {
+                process.destroyForcibly();
+                ExecutionStat stat = parseExecutionStat(statFilePath);
+                return new ProcessOutcome(-1, "", "timeout", true, stat.getTimeUsed(), stat.getMemoryUsed());
+            }
+
+            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            ExecutionStat stat = parseExecutionStat(statFilePath);
+            return new ProcessOutcome(process.exitValue(), stdout, stderr, false, stat.getTimeUsed(), stat.getMemoryUsed());
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot execute command in sandbox: " + String.join(" ", dockerCommand), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Command interrupted: " + String.join(" ", dockerCommand), e);
+        }
     }
 
     public List<String> buildDockerCommand(List<String> command, Path workingDirectory, String statFileName) {

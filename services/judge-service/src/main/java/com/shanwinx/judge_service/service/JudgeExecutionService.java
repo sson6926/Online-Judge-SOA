@@ -5,11 +5,8 @@ import com.shanwinx.judge_service.dto.SubmissionJobDTO;
 import com.shanwinx.judge_service.dto.Verdict;
 import com.shanwinx.judge_service.service.executor.LanguageExecutor;
 import com.shanwinx.judge_service.service.executor.LanguageExecutorResolver;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -105,35 +102,14 @@ public class JudgeExecutionService {
     }
 
     private ProcessOutcome runCommand(List<String> command, Path workingDirectory, long timeoutMs, String phase) {
-        if (command == null || command.isEmpty()) {
-            return new ProcessOutcome(0, "", "", false, 0, 0);
-        }
-
-        String statFileName = phase + ".stat";
-        Path statFilePath = workingDirectory.resolve(statFileName);
-        List<String> dockerCommand = dockerSandboxService.buildDockerCommand(command, workingDirectory, statFileName);
-        try {
-            ProcessBuilder builder = new ProcessBuilder(dockerCommand);
-
-            Process process = builder.start();
-            boolean completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
-
-            if (!completed) {
-                process.destroyForcibly();
-                DockerSandboxService.ExecutionStat stat = dockerSandboxService.parseExecutionStat(statFilePath);
-                return new ProcessOutcome(-1, "", "timeout", true, stat.getTimeUsed(), stat.getMemoryUsed());
-            }
-
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            DockerSandboxService.ExecutionStat stat = dockerSandboxService.parseExecutionStat(statFilePath);
-            return new ProcessOutcome(process.exitValue(), stdout, stderr, false, stat.getTimeUsed(), stat.getMemoryUsed());
-        } catch (IOException e) {
-            throw new IllegalStateException("Cannot execute command in sandbox: " + String.join(" ", dockerCommand), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Command interrupted: " + String.join(" ", dockerCommand), e);
-        }
+        DockerSandboxService.ProcessOutcome outcome = dockerSandboxService.executeCommand(command, workingDirectory, timeoutMs, phase);
+        return new ProcessOutcome(
+                outcome.getExitCode(),
+                outcome.getStdout(),
+                outcome.getStderr(),
+                outcome.isTimedOut(),
+                outcome.getTimeUsed(),
+                outcome.getMemoryUsed());
     }
 
     private String trimError(String message) {
