@@ -49,7 +49,7 @@ public class DockerSandboxService {
         }
 
         String workspacePath = workingDirectory.toAbsolutePath().normalize().toString();
-        String shellCommand = buildShellCommand(command) + " && chmod +x main 2>/dev/null || true";
+        String shellCommand = buildShellCommand(command) + " && (chmod +x main 2>/dev/null || true)";
         List<String> dockerCommand = new ArrayList<>();
         dockerCommand.add("docker");
         dockerCommand.add("run");
