@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -67,5 +68,15 @@ public class SubmissionServiceImpl implements SubmissionService {
         }
         
         return submission;
+    }
+
+    @Override
+    public List<Submission> getAll() {
+        return submissionRepository.findAllByOrderBySubmittedAtDesc();
+    }
+
+    @Override
+    public List<Submission> getByProblemId(UUID problemId) {
+        return submissionRepository.findByProblemIdOrderBySubmittedAtDesc(problemId);
     }
 }
