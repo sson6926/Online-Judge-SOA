@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, XCircle, Clock, AlertCircle, History } from 'lucide-react';
 import { CodeEditor } from '../components/CodeEditor';
 import { StatusBadge } from '../components/StatusBadge';
 import { problemApi, submissionApi, Problem, Submission, getToken } from '../utils/api';
@@ -12,6 +12,8 @@ export function ProblemDetail() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<Submission | null>(null);
+  const [history, setHistory] = useState<Submission[]>([]);
+  const [activeTab, setActiveTab] = useState<'result' | 'history'>('result');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -20,9 +22,10 @@ export function ProblemDetail() {
       .then(setProblem)
       .catch(() => setProblem(null))
       .finally(() => setLoading(false));
+    // Load submission history for this problem
+    submissionApi.getByProblemId(id).then(setHistory).catch(() => {});
   }, [id]);
 
-  // Stop polling when component unmounts
   useEffect(() => {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, []);
@@ -30,8 +33,8 @@ export function ProblemDetail() {
   const handleSubmit = async (code: string, lang: string) => {
     setIsSubmitting(true);
     setResult(null);
+    setActiveTab('result');
 
-    // Get user_id from token (decode JWT payload)
     const token = getToken();
     let userId = 'anonymous';
     if (token) {
@@ -50,14 +53,15 @@ export function ProblemDetail() {
       });
 
       setResult(submission);
+      setHistory(prev => [submission, ...prev]);
 
-      // Start polling every 1 seconds
       pollingRef.current = setInterval(async () => {
         const updated = await submissionApi.getById(submission.id);
         setResult(updated);
         if (updated.status === 'FINISHED') {
           clearInterval(pollingRef.current!);
           setIsSubmitting(false);
+          setHistory(prev => prev.map(s => s.id === updated.id ? updated : s));
         }
       }, 1000);
     } catch (e: any) {
@@ -66,8 +70,7 @@ export function ProblemDetail() {
     }
   };
 
-  const handleRun = (code: string, lang: string) => {
-    // Run sample is not yet implemented — show placeholder
+  const handleRun = (_code: string, _lang: string) => {
     alert('Run sample feature coming soon!');
   };
 
@@ -75,9 +78,7 @@ export function ProblemDetail() {
   if (!problem) return (
     <div className="p-8 text-center">
       <h2 className="text-2xl font-bold text-slate-900">Problem not found</h2>
-      <button onClick={() => navigate('/problems')} className="mt-4 text-primary-dark hover:underline">
-        Back to problems
-      </button>
+      <button onClick={() => navigate('/problems')} className="mt-4 text-primary-dark hover:underline">Back to problems</button>
     </div>
   );
 
@@ -121,40 +122,67 @@ export function ProblemDetail() {
           <CodeEditor onRun={handleRun} onSubmit={handleSubmit} isRunning={false} isSubmitting={isSubmitting} />
         </div>
 
-        {/* Results */}
+        {/* Results + History tabs */}
         <div className="h-48 bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700">
-            Test Results
+          <div className="flex border-b border-slate-200 bg-slate-50">
+            <button
+              onClick={() => setActiveTab('result')}
+              className={`px-4 py-2 text-sm font-medium ${activeTab === 'result' ? 'text-primary-dark border-b-2 border-primary-dark' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Test Results
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`px-4 py-2 text-sm font-medium flex items-center gap-1 ${activeTab === 'history' ? 'text-primary-dark border-b-2 border-primary-dark' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <History className="w-3.5 h-3.5" />
+              History ({history.length})
+            </button>
           </div>
+
           <div className="flex-1 p-4 overflow-y-auto">
-            {!result && !isSubmitting && (
-              <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                Submit to see results here.
-              </div>
-            )}
-            {isSubmitting && result?.status !== 'FINISHED' && (
-              <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-3">
-                <div className="w-6 h-6 border-2 border-primary-dark border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium">Judging... ({result?.status ?? 'PENDING'})</span>
-              </div>
-            )}
-            {result && result.status === 'FINISHED' && (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
-                  {getVerdictIcon(result.verdict)}
-                  <h3 className={`text-lg font-bold ${getVerdictColor(result.verdict)}`}>
-                    {result.verdict ?? 'Unknown'}
-                  </h3>
-                </div>
-                {result.error_details && (
-                  <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 font-mono">
-                    {result.error_details}
-                  </p>
+            {activeTab === 'result' && (
+              <>
+                {!result && !isSubmitting && (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-sm">Submit to see results here.</div>
                 )}
-                <div className="flex space-x-6 text-sm">
-                  <div><span className="text-slate-500">Runtime:</span><span className="ml-2 font-mono font-medium">{result.time_used ?? 'N/A'} ms</span></div>
-                  <div><span className="text-slate-500">Memory:</span><span className="ml-2 font-mono font-medium">{result.memory_used ?? 'N/A'} KB</span></div>
-                </div>
+                {isSubmitting && result?.status !== 'FINISHED' && (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-3">
+                    <div className="w-6 h-6 border-2 border-primary-dark border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm font-medium">Judging... ({result?.status ?? 'PENDING'})</span>
+                  </div>
+                )}
+                {result && result.status === 'FINISHED' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      {getVerdictIcon(result.verdict)}
+                      <h3 className={`text-lg font-bold ${getVerdictColor(result.verdict)}`}>{result.verdict ?? 'Unknown'}</h3>
+                    </div>
+                    {result.error_details && (
+                      <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 font-mono">{result.error_details}</p>
+                    )}
+                    <div className="flex space-x-6 text-sm">
+                      <div><span className="text-slate-500">Runtime:</span><span className="ml-2 font-mono font-medium">{result.time_used ?? 'N/A'} ms</span></div>
+                      <div><span className="text-slate-500">Memory:</span><span className="ml-2 font-mono font-medium">{result.memory_used != null ? `${(result.memory_used / 1024).toFixed(1)} MB` : 'N/A'}</span></div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === 'history' && (
+              <div className="space-y-1">
+                {history.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No submissions yet.</p>}
+                {history.map(s => (
+                  <div key={s.id} className="flex items-center justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
+                    <span className={`font-semibold w-16 ${s.verdict === 'AC' ? 'text-emerald-600' : s.verdict ? 'text-red-600' : 'text-slate-500'}`}>
+                      {s.status === 'FINISHED' ? (s.verdict ?? '—') : s.status}
+                    </span>
+                    <span className="text-slate-500 font-mono text-xs">{s.language}</span>
+                    <span className="text-slate-400 font-mono text-xs">{s.time_used != null ? `${s.time_used}ms` : '—'}</span>
+                    <span className="text-slate-400 text-xs">{new Date(s.submitted_at).toLocaleTimeString()}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

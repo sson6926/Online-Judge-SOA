@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +29,16 @@ public class SubmissionController {
 
         Submission result = submissionService.submit(request);
         return ResponseEntity.accepted().body(result);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<Submission>> getAllSubmissions() {
+        return ResponseEntity.ok(submissionService.getAll());
+    }
+
+    @GetMapping("/problem/{problemId}")
+    public ResponseEntity<List<Submission>> getByProblemId(@PathVariable UUID problemId) {
+        return ResponseEntity.ok(submissionService.getByProblemId(problemId));
     }
 
     @GetMapping("/{id}")
