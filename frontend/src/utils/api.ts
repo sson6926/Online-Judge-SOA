@@ -106,6 +106,9 @@ export const submissionApi = {
 
   getAll: (): Promise<Submission[]> =>
     request('/submissions'),
+
+  getByProblemId: (problemId: string): Promise<Submission[]> =>
+    request(`/submissions/problem/${problemId}`),
 };
 
 // ─── User Service ────────────────────────────────────────────────────────────
