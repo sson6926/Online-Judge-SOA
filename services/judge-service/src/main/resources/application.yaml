@@ -39,3 +39,15 @@ judge:
 services:
   problem-service:
     url: ${PROBLEM_SERVICE_URL:http://problem-service:5001}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: judge-service
