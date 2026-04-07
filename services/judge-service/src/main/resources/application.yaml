@@ -33,8 +33,6 @@ judge:
     root: ${JUDGE_WORKSPACE_ROOT:/tmp/judge-jobs}
     host-root: ${JUDGE_WORKSPACE_HOST_ROOT:}
     cleanup-enabled: false
-  testcases:
-    source: ${JUDGE_TESTCASES_SOURCE:mock}
 
 services:
   problem-service:
