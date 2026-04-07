@@ -4,20 +4,36 @@ import { Mail, Lock } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { motion } from 'framer-motion';
+import { userApi, setToken } from '../utils/api';
+
 interface LoginProps {
   onLogin: () => void;
 }
+
 export function Login({ onLogin }: LoginProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const handleSubmit = (e: React.FormEvent) => {
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+
+    const form = e.currentTarget;
+    const username = (form.elements.namedItem('username') as HTMLInputElement).value;
+    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+
+    try {
+      const res = await userApi.login(username, password);
+      setToken(res.token);
       onLogin();
       navigate('/problems');
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
   return (
     <div className="min-h-screen bg-white flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -70,25 +86,21 @@ export function Login({ onLogin }: LoginProps) {
         <Card>
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-dark">
-                
-                Email address
+              <label htmlFor="username" className="block text-sm font-medium text-dark">
+                Username
               </label>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Mail className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
+                  id="username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
                   required
                   className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-primary-dark focus:border-primary-dark sm:text-sm"
-                  placeholder="you@example.com" />
-                
+                  placeholder="your_username" />
               </div>
             </div>
 
@@ -146,6 +158,9 @@ export function Login({ onLogin }: LoginProps) {
                 Sign in
               </Button>
             </div>
+            {error && (
+              <p className="text-sm text-red-600 text-center">{error}</p>
+            )}
           </form>
         </Card>
       </motion.div>
