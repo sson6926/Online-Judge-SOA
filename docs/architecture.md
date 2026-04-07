@@ -8,13 +8,12 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 | Pattern | Selected? | Business/Technical Justification |
 |---------|-----------|----------------------------------|
 | **API Gateway** | ✅ | Điểm truy cập duy nhất, quản lý Auth, Rate Limiting và ẩn cấu trúc microservices phía sau. |
-| **Database per Service** | ✅ | Đảm bảo tính độc lập dữ liệu giữa Problem và Submission. Service này sập không ảnh hưởng đến dữ liệu service kia. |
+| **Database per Service** | ✅ | Mỗi service có PostgreSQL riêng (`user_db`, `problem_db`, `submission_db`). Service này sập không ảnh hưởng dữ liệu service kia. |
 | **Event-driven** | ✅ | Sử dụng RabbitMQ cho cả luồng nộp bài (Job Queue) và luồng trả kết quả (Result Queue) để đạt được sự mất liên kết (Decoupling) hoàn toàn. |
-| **Bulkhead** | ✅ | Áp dụng tại Judge Service để giới hạn số lượng bài chấm đồng thời, bảo vệ máy chủ vật lý. |
 | **Circuit Breaker** | ✅ | Bảo vệ Judge Service khỏi các sự cố khi gọi Problem Service lấy Metadata testcases. |
 | **Service Discovery** | ✅ | Sử dụng Eureka Server (Spring Cloud Netflix) để đăng ký và khám phá dịch vụ động; các service gọi nhau qua service-id thay vì hardcode host/port. |
-| **Local Disk Caching** | ✅ | Lưu trữ testcases ngay trên Worker Disk để tối ưu hiệu năng nạp dữ liệu (Shortcut cho Cache HIT). |
-| **Idempotency** | ✅ | Đảm bảo tính toàn vẹn dữ liệu khi xử lý bản tin từ hàng đợi, ngăn chặn nộp bài 1 lần ra 2 kết quả. |
+| **Idempotency** | ✅ | Submission Service kiểm tra `status == FINISHED` trước khi ghi kết quả, ngăn chặn xử lý trùng lặp từ queue. 
+| **Sandbox Isolation** | ✅ | Mã nguồn người dùng thực thi trong Docker Container (`judge-sandbox` image) cô lập hoàn toàn tài nguyên và mạng. ||
 | **Saga Pattern** | ❌ | Không lựa chọn vì nghiệp vụ cập nhật trạng thái bài nộp đơn giản, sử dụng Eventual Consistency và Idempotency mang lại hiệu năng cao hơn gấp nhiều lần. |
 | **Shared Database** | ❌ | Không lựa chọn để tránh sự phụ thuộc chặt chẽ giữa các dịch vụ (Tight Coupling) và cho phép scale dữ liệu độc lập. |
 | **Sandbox Isolation** | ✅ | Thực thi mã nguồn người dùng trong Docker Container bị cô lập hoàn toàn tài nguyên và mạng. |
@@ -25,28 +24,34 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 
 ## 2. System Components
 
-| Component     | Responsibility | Tech Stack      | Port  |
-|---------------|----------------|-----------------|-------|
-| **Frontend**  | Giao diện soạn thảo (Monaco) & Xem bài | React / Next.js | 3000 |
-| **Gateway**   | Định tuyến, Xác thực JWT & Rate Limiting | Spring Boot + Spring Cloud Gateway | 8080 |
-| **Service Discovery** | Đăng ký dịch vụ và tra cứu service instances | Spring Boot + Eureka Server | 8761 |
-| **Problem Service**| Quản lý dữ liệu đề bài và các file testcases (.txt) | Java | 5001 |
-| **Submission Service**  | Tiếp nhận bài nộp & Lắng nghe Result Queue | Java | 5002 |
-| **Judge Service** | Worker lấy bài từ Queue & Chấm bài | Java / Docker| - |
-| **Storage (S3)**| Lưu trữ tập trung các file Testcases văn bản thô | Minio / AWS S3 | 9000 |
-| **RabbitMQ** | Hệ thống truyền tin bất đồng bộ (2 Queues) | RabbitMQ | 5672 |
-
+| Component | Trách nhiệm | Tech Stack | Port |
+|-----------|-------------|------------|------|
+| **Frontend** | Giao diện soạn thảo (Monaco Editor), xem bài, lịch sử nộp | React 18 + TypeScript + Vite + Tailwind CSS | 3000 |
+| **API Gateway** | Định tuyến, xác thực JWT, Rate Limiting | Spring Boot + Spring Cloud Gateway | 8080 |
+| **Service Discovery** | Đăng ký & khám phá dịch vụ | Spring Boot + Eureka Server | 8761 |
+| **User Service** | Quản lý tài khoản, cấp phát token | Java / Spring Boot | 5000 |
+| **Problem Service** | Quản lý đề bài, testcases, metadata | Java / Spring Boot | 5001 |
+| **Submission Service** | Tiếp nhận bài nộp, lắng nghe Result Queue | Java / Spring Boot | 5002 |
+| **Judge Service** | Worker chấm bài, quản lý Docker Sandbox | Java / Spring Boot | 5003 |
+| **RabbitMQ** | Message Broker — 2 queues: Jobs & Results | RabbitMQ 3 | 5672 / 15672 |
+| **Redis** | Cache trạng thái bài nộp (Polling optimization) | Redis 7 | 6379 |
+| **MinIO** | Object Storage lưu trữ file testcases (.txt) | MinIO | 9000 / 9001 |
+| **PostgreSQL** | Database riêng biệt cho từng service | PostgreSQL 16 | 5433–5435 |
+| **Prometheus** | Thu thập metrics hệ thống | Prometheus | 9090 |
+| **Grafana** | Dashboard giám sát & cảnh báo | Grafana | 3001 |
+| **Loki + Promtail** | Tập trung logs từ tất cả container | Grafana Loki | 3100 |
 ---
 
 ## 3. Communication Matrix
 *Cập nhật luồng giao tiếp giảm thiểu gọi trực tiếp giữa các Microservices.*
 
-| From → To     | Problem Service | Submission Service | Judge Service | Gateway | Storage | MQ |
-|---------------|-----------|-----------|---------|----------| --- | --- |
-| **Frontend**  | ❌ (Qua GW) | ❌ (Qua GW) | ❌ | ✅ | ❌ | ❌ |
-| **Gateway**   | ✅ (REST) | ✅ (REST) | ❌ | - | ❌ | ❌ |
-| **Sub. Service**  | ✅ (REST) | - | ❌ | ❌ | ❌ | ✅ (Post/Listen) |
-| **Judge Service** | ✅ (via CB) | ❌ | - | ❌ | ✅ (Download) | ✅ (Post/Listen) |
+| From → To | User Service | Problem Service | Submission Service | Judge Service | MinIO | RabbitMQ |
+|-----------|-------------|-----------------|-------------------|---------------|-------|----------|
+| **Frontend** | ❌ (qua GW) | ❌ (qua GW) | ❌ (qua GW) | ❌ | ❌ | ❌ |
+| **API Gateway** | ✅ REST | ✅ REST | ✅ REST | ❌ | ❌ | ❌ |
+| **Submission Service** | ❌ | ❌ | - | ❌ | ❌ | ✅ Publish/Consume |
+| **Judge Service** | ❌ | ✅ REST (Circuit Breaker) | ❌ | - | ✅ Download | ✅ Publish/Consume |
+| **Problem Service** | ❌ | - | ❌ | ❌ | ✅ Upload/Presign | ❌ |
 
 ---
 
@@ -56,81 +61,68 @@ Dưới đây là các mô hình kiến trúc được lựa chọn để giải
 graph TD
     User((User)) --> FE[Frontend :3000]
     FE --> GW[API Gateway :8080]
-        %% ================= POLLING =================
 
-        FE -.->|Polling 1s| SS
 
-    %% ================= GATEWAY =================
+
     subgraph Gateway_Service
         GW
     end
 
-    %% ================= SERVICES =================
-    
-
-        subgraph Submission_Service
-            SS[Submission Service :5002]
-            DB_SUB[(SQL DB - Submission)]
-            SS --> DB_SUB
-            SS <-->|Fast Status| RD[(Redis Cache)]
-        end
-
-        subgraph Problem_Service
-            PS[Problem Service :5001]
-            DB_PROB[(SQL DB - Problem)]
-            PS --> DB_PROB
-        end
-
-    
-
-    %% ================= MESSAGING =================
-    subgraph Messaging_Layer
-        MQ_JOBS[(Job Queue)]
-        MQ_RESULTS[(Result Queue)]
-
-    end
-
-    %% ================= GATEWAY ROUTING =================
-    GW --> SS
+    GW --> US
     GW --> PS
+    GW --> SS
 
-    %% ================= ASYNC FLOW =================
+    subgraph User_Service
+        US[User Service :5000]
+        DB_USER[(PostgreSQL - user_db)]
+        US --> DB_USER
+    end
+
+    subgraph Problem_Service
+        PS[Problem Service :5001]
+        DB_PROB[(PostgreSQL - problem_db)]
+        PS --> DB_PROB
+        PS <-->|Upload / Presign URL| S3[(MinIO :9000)]
+    end
+
+    subgraph Submission_Service
+        SS[Submission Service :5002]
+        DB_SUB[(PostgreSQL - submission_db)]
+        SS --> DB_SUB
+        SS <-->|Cache submission:id| RD[(Redis :6379)]
+    end
+
+    subgraph Messaging_Layer
+        MQ_JOBS[judge.jobs]
+        MQ_RESULTS[judge.results]
+    end
+
     SS -->|1. Push Job| MQ_JOBS
-    MQ_JOBS -->|2. Consume| JS[Judge Worker]
+    MQ_JOBS -->|2. Consume| JS
 
-    JS -->|3. Publish Result| MQ_RESULTS
-    MQ_RESULTS -->|4. Update Result| SS
-
-    %% ================= JUDGE INTERNAL =================
     subgraph Judge_Service
-        JS
+        JS[Judge Service :5003]
     end
 
-    %% ================= STORAGE =================
-    subgraph Storage_Layer
-        CACHE[(Local Disk Cache)]
-        S3[(S3 / MinIO)]
-    end
+    JS -->|3. Fetch testcase metadata| PS
+    PS -->|List testcase keys + presigned URLs| JS
+    JS -->|4. Download input/output files| S3
+    S3 -->|Raw file content| JS
+    JS -->|5. Execute code| SB[Docker Sandbox\njudge-sandbox:latest]
+    JS -->|6. Publish Result| MQ_RESULTS
+    MQ_RESULTS -->|7. Consume Result| SS
 
-    %% ================= EXECUTION =================
-    subgraph Execution_Layer
-        SB[Docker Sandbox]
-    end
-
-    %% ================= JUDGE DEPENDENCIES =================
-    JS -->|Run Code| SB
-    JS -.->|Cache Hit| CACHE
-    CACHE -.->|Cache Miss| S3
-    JS -.->|Fetch Metadata| PS
 ```
-
 ---
 
 ## 5. Deployment
 
-- All services containerized with Docker
-- Orchestrated via Docker Compose
-- Single command: `docker compose up --build`
+- Tất cả services được containerize bằng Docker
+- Orchestrate bằng Docker Compose (`docker-compose.yml`)
+- Khởi động toàn bộ hệ thống: `docker compose up --build`
+- Sandbox image build riêng: `docker compose --profile build-sandbox build`
+- Judge Service mount `/var/run/docker.sock` để spawn sandbox container
+
 
 
 ---
@@ -138,18 +130,20 @@ graph TD
 ## 6. Scalability & Fault Tolerance
 
 ### 6.1 How can individual services scale independently?
-- **Judge Service:** Là thành phần tốn tài nguyên nhất (CPU-bound). Hệ thống cho phép mở rộng chiều ngang (Horizontal Scaling) bằng cách tăng số lượng instance Worker để tiêu thụ bản tin từ hàng đợi nhanh hơn khi có lượng bài nộp lớn.
-- **API Services:** Problem và Submission Service được thiết kế Stateless, cho phép chạy song song nhiều bản sao đằng sau API Gateway để chia tải.
-- **Storage & DB:** Việc tách biệt Database giúp cô lập tải trọng; các dịch vụ không cạnh tranh tài nguyên I/O với nhau.
+- **Judge Service:** CPU-bound, scale horizontal bằng cách tăng số instance worker. RabbitMQ `prefetch=1` đảm bảo load được phân phối đều giữa các worker.
+- **Submission / Problem / User Service:** Stateless, có thể chạy nhiều bản sao song song đằng sau API Gateway. Eureka tự động load balance.
+- **Database:** Mỗi service có DB riêng, không cạnh tranh I/O với nhau.
 
 ### 6.2 What happens when a service goes down?
-- **Isolation (Buffer):** Nếu Judge Service tạm dừng, Submission Service vẫn tiếp nhận bài nộp và lưu trữ an toàn trong Message Queue. Khi Judge Service "sống lại", nó sẽ xử lý nốt các công việc tồn đọng mà không làm mất dữ liệu của người dùng.
-- **Cascading Failure Prevention:** Nhờ Circuit Breaker, nếu một dịch vụ cấp thấp (như Problem Service) sập, nó sẽ không kéo sập các dịch vụ cấp cao (Judge Service) thông qua hiện tượng nghẽn thread.
+- **Judge Service down:** Submission Service vẫn tiếp nhận bài nộp, job được giữ an toàn trong `judge.jobs` queue. Khi Judge Service khởi động lại, xử lý tiếp tồn đọng.
+- **Problem Service down:** Circuit Breaker tại Judge Service chuyển sang OPEN, trả về `SE` verdict thay vì chờ vô hạn (fail-fast).
+- **Redis down:** Submission Service fallback về query trực tiếp PostgreSQL.
 
 ### 6.3 Are there retry mechanisms or circuit breakers?
-- **Retry & DLQ:** Hệ thống áp dụng cơ chế thử lại tại hàng đợi. Những bản tin lỗi liên tục sẽ được đưa vào Dead Letter Queue để hậu kiểm, tránh việc làm tắc nghẽn luồng xử lý chính.
-- **Resilience:** Circuit Breaker được tích hợp chặt chẽ trong luồng lấy Metadata giúp hệ thống luôn trong trạng thái "phản hồi nhanh" (Fail-fast) thay vì "chờ đợi vô vạn".
+- Judge Service retry 3 cấp với TTL tăng dần (30s → 2m → 10m) trước khi đưa vào `judge.jobs.dlq`.
+- Submission Service retry tối đa 3 lần với exponential backoff (3s, 6s, 12s) khi consume `judge.results`.
+- DLQ cho phép hậu kiểm và replay thủ công các job thất bại.
 
 ### 6.4 How is data consistency maintained across services?
-- **Eventual Consistency:** Dữ liệu trạng thái bài nộp được cập nhật bất đồng bộ qua Queue. Hệ thống chấp nhận việc kết quả chưa hiển thị ngay lập tức (trong vài mili giây) để đổi lấy hiệu năng và tính sẵn sàng cao.
-- **Idempotency:** Đảm bảo mỗi bản tin kết quả chấm điểm chỉ được ghi nhận một lần duy nhất vào Database, loại bỏ rủi ro sai lệch dữ liệu do truyền lặp.
+- **Eventual Consistency:** Kết quả bài nộp được cập nhật bất đồng bộ qua queue. Client polling mỗi 1-2 giây để nhận kết quả cuối cùng.
+- **Idempotency:** `SubmissionListener` kiểm tra `status == FINISHED` trước khi ghi — đảm bảo mỗi kết quả chỉ được ghi một lần dù message được deliver nhiều lần.

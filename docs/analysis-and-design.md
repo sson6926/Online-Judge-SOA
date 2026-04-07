@@ -10,24 +10,26 @@
 ### 1.1 Business Process Definition
 - **Domain**: Online Code Judging
 - **Business Process**: Nộp mã nguồn và chấm điểm tự động 
-- **Actors**: Người học (User/Student)
-- **Scope**: Từ khi người dùng xem đề bài, nộp bài đến khi kết quả được lưu trữ và hiển thị.
+- **Actors**: Sinh viên / Người luyện thuật toán / Người thi
+- **Scope**: Xem đề bài → Soạn thảo code → Nộp bài → Hệ thống chấm tự động → Nhận kết quả
+
 
 **Sơ đồ quy trình nghiệp vụ (Business Process Flowchart):**
 
 ```mermaid
 flowchart TD
+
     Start([Bắt đầu]) --> ViewList[Xem danh sách bài toán]
-    ViewList --> ViewDetail[Xem chi tiết & soạn thảo Code]
-    ViewDetail --> RunTest[Chạy thử - Sample Test]
-    RunTest --> Decision{Code ổn?}
-    Decision -- No --> ViewDetail
-    Decision -- Yes --> Submit[Nộp bài chính thức]
+
+ViewList --> ViewDetail[Xem chi tiết & soạn thảo Code]
+    ViewDetail --> Submit[Nộp bài chính thức]
     Submit --> Queue(Hệ thống đưa vào Queue)
-    Queue --> Judge[Dịch vụ Judge lấy bài từ Queue]
-    Judge --> Sandbox[Thực thi trong Sandbox cô lập]
-    Sandbox --> Update[Cập nhật kết quả bài nộp vào DB]
-    Update --> Notify[Thông báo kết quả/Polling]
+    Queue --> Judge[Judge Service lấy bài từ Queue]
+    Judge --> Sandbox[Thực thi trong Docker Sandbox cô lập]
+    Sandbox --> Compare[So sánh output với expected output]
+    Compare --> Update[Cập nhật kết quả bài nộp vào DB]
+    Update --> Cache[Invalidate Redis Cache]
+    Cache --> Notify[Thông báo kết quả qua Polling]
     Notify --> End([Kết thúc])
 ```
 
@@ -39,8 +41,8 @@ flowchart TD
 ### 1.3 Non-Functional Requirements
 | Requirement    | Description |
 |----------------|-------------|
-| Performance    | Thời gian thực thi code < 2 giây/testcase. Tối ưu nạp testcase qua Local Disk Cache và Parallel Downloading (.txt). |
-| Security       | Thực thi code trong môi trường sandbox (isolation), hạn chế truy cập CPU, memory, file system và network. |
+| Performance    | Thời gian thực thi code < 2 giây/testcase.|
+| Security       | Thực thi code trong môi trường Docker Sandbox cô lập (judge-sandbox image), hạn chế truy cập CPU, memory, file system và network. JWT Authentication tại API Gateway. |
 | Scalability    | Judge Worker có thể scale horizontally dựa trên độ dài message queue. |
 | Availability   | Submission Service luôn phục vụ request nộp bài dù Judge bận. |
 | Reliability    | Sử dụng Message Queue trong kiến trúc bất đồng bộ và Idempotency Check để đảm bảo dữ liệu không bị mất và được xử lý chính xác. |
@@ -55,31 +57,32 @@ flowchart TD
 |---|--------|-------|-------------|-----------|
 | 1 | Xem danh sách bài toán | User | Lấy danh mục bài tập từ cơ sở dữ liệu | ✅ |
 | 2 | Xem chi tiết bài toán | User | Lấy yêu cầu, giới hạn và testcase mẫu | ✅ |
-| 3 | Chạy thử mã nguồn (Run) | User | Chấm nhanh với input tùy chỉnh/mẫu | ✅ |
-| 4 | Khởi tạo bài nộp (Submit)| User | Lưu code ban đầu với status PENDING | ✅ |
-| 5 | Chấm bài ngầm (async) | Judge | Thực thi code qua nhiều testcase ngầm | ✅ |
-| 6 | Ghi nhận kết quả | Judge | Cập nhật status từ PENDING sang kết quả cuối cùng | ✅ |
-| 7 | Tra cứu kết quả (Polling)| User | Client theo dõi trạng thái qua Polling API | ✅ |
+| 3 | Khởi tạo bài nộp (Submit)| User | Lưu code ban đầu với status PENDING | ✅ |
+| 4 | Chấm bài (async) | Judge | Thực thi code qua nhiều testcase  | ✅ |
+| 5 | Ghi nhận kết quả | Judge | Cập nhật status từ PENDING sang kết quả cuối cùng | ✅ |
+| 6 | Tra cứu kết quả (Polling)| User | Client theo dõi trạng thái qua Polling API | ✅ |
 
 ### 2.3 Entity Service Candidates
 | Entity | Service Candidate | Agnostic Actions |
 |--------|-------------------|------------------|
-| User | User Service | CreateUser, GetUserProfile, UpdateUserProfile, GetUserStatistics, GetUserSubmissions, AuthenticateUser |
-| Problem | Problem Service | CreateProblem, GetProblem, GetProblemList, UpdateProblem, SearchProblems, GetProblemDetail, AddTestCases, GetTestCases |
-| Submission | Submission Service | CreateSubmission, GetSubmission, GetSubmissionList, GetSubmissionDetail, GetSubmissionResult, GetUserSubmissionsByProblem, RejudgeSubmission |
+| User | User Service | CreateUser (Signup), AuthenticateUser (Login)|
+| Problem | Problem Service | CreateProblem, GetProblem, GetProblemList, DeleteProblem, AddTestCase, DeleteTestCase, GetTestCasesByProblemId|
+| Submission | Submission Service | CreateSubmission, GetSubmissionById |
 
 ### 2.4 Task Service Candidate
 | Non-agnostic Action | Task Service Candidate |
 |---------------------|------------------------|
-| Validate → Save Submission → Publish to Message Queue | Submission Service |
-| Consume Verdict from Queue → Update Status | Submission Service |
+| Validate → Save Submission (PENDING) → Push to judge.jobs Queue | Submission Service |
+| Consume judge.results Queue → Idempotency Check → Update DB (FINISHED) → Invalidate Redis Cache | Submission Service (SubmissionListener) |
+| Consume judge.jobs Queue → Load Testcases → Execute Docker Sandbox → Publish to judge.results Queue | Judge Service (JudgeJobListener) |
 
 ### 2.5 Identify Resources
 | Entity / Process | Resource URI |
 |------------------|--------------|
+| Người dùng | `/users` |
 | Bài toán | `/problems` |
+| Quản lý bộ test | `/problems/{id}/testcases` |
 | Bài nộp | `/submissions` |
-| Quản lý bộ test | `/api/problems/{id}/testcases` |
 
 
 ### 2.6 Associate Capabilities with Resources and Methods
@@ -91,144 +94,78 @@ flowchart TD
 | Submission Service| Get Status | `/submissions/{id}` | GET |
 
 ### 2.7 Utility Service & Microservice Candidates
-| Candidate | Type | Justification |
+| Candidate | Type  | Justification |
 |-----------|------|---------------|
-| Judge Service | Microservice | Xử lý logic chấm điểm biệt lập, đòi hỏi tính cô lập tài nguyên (Sandbox) và hiệu suất thực thi cao. |
-| Gateway | Utility | Quản lý định tuyến, xác thực JWT và Rate Limiting. |
-| Message Broker | Utility | (RabbitMQ) Đảm bảo tính bất đồng bộ giữa các dịch vụ. |
-| Storage | Utility | (Minio/S3) Lưu trữ tập trung các bộ file testcases (.txt). |
+| User Service | Microservice  | Quản lý định danh, xác thực JWT, phân quyền ADMIN/STUDENT. |
+| Problem Service | Microservice  | Quản lý bài toán và testcase, tích hợp MinIO để lưu file .txt. |
+| Submission Service | Microservice  | Tiếp nhận bài nộp, polling kết quả với Redis Cache, consume kết quả từ Queue. |
+| Judge Service | Microservice  | Xử lý logic chấm điểm biệt lập trong Docker Sandbox, Circuit Breaker khi gọi Problem Service. |
+| API Gateway | Utility  | Định tuyến request, xác thực JWT, forward header X-User-Id. Tích hợp Eureka Service Discovery. |
+| Service Discovery | Utility  | Eureka Server — đăng ký và phát hiện service tự động. |
+| Message Broker | Utility  | RabbitMQ — đảm bảo tính bất đồng bộ, retry queue 3 cấp, DLQ. |
+| Storage | Utility  | MinIO (S3-compatible) — lưu trữ tập trung các file testcase (.txt). |
+| Cache | Utility | Redis — cache trạng thái submission để tăng tốc polling. |
+| Observability | Utility  | Prometheus + Grafana + Loki + Promtail — metrics, logging, alerting. |
 
 ### 2.8 Service Composition Candidates
-**Sơ đồ xử lý của Judge SVC:**
 
 ```mermaid
 sequenceDiagram
-    participant User as Client/Frontend
-    participant GW as API Gateway
-    participant SS as Submission Service
-    participant MQ as Message Queue
-    participant PS as Problem Service
-    participant S3 as Storage (S3)
-    participant JS as Judge Service
+    participant User as Client/Frontend (3000)
+    participant GW as API Gateway (8080)
+    participant US as User Service (5000)
+    participant PS as Problem Service (5001)
+    participant SS as Submission Service (5002)
+    participant JS as Judge Service (5003)
+    participant RD as Redis (6379)
+    participant MQ as RabbitMQ (5672)
+    participant S3 as MinIO (9000)
+    participant EU as Eureka (8761)
 
-    User->>GW: POST /submissions (code, lang, p_id)
-    GW->>SS: Create Record (PENDING)
-    SS->>MQ: Push Job Metadata
-    SS-->>User: 202 Accepted
+    Note over GW, EU: Tất cả services đăng ký với Eureka
 
-    MQ->>JS: Consume Job Request
-
-    JS->>PS: Get Testcase Metadata (file list + S3 URLs)
-    PS-->>JS: List<Testcase>
-
-    loop each file (parallel + limited concurrency)
-        alt Cache MISS
-            JS->>S3: Download file
-            JS->>JS: Save to Local Cache (/var/judge/cache/)
-        else Cache HIT
-            Note over JS: Use local cached file
-        end
-    end
-
-    JS->>JS: Execute in Docker Sandbox
-    JS->>MQ: Publish Result Message
-
-    MQ->>SS: Consume Result
-    SS->>SS: Idempotency Check
-    SS->>SS: Update Final Result to DB
-```
-
-**Sơ đồ Tương tác (Tối ưu hóa với Polling & Redis Cache):**
-
-```mermaid
-sequenceDiagram
-    participant User as Client/Frontend
-    participant PS as Problem Service
-    participant SS as Submission Service
-    participant RD as Redis (Cache)
-    participant MQ as Message Queue
-    participant JS as Judge Service
-
-    User->>SS: POST /submissions
-    SS->>SS: Save DB (PENDING)
-    SS->>RD: Set Status: PENDING (Cache)
-    SS->>MQ: Push Job to Queue
-    SS-->>User: 202 Accepted (submissionId)
-    
-    Note over User, SS: Luồng Polling bắt đầu
-    loop Every 1-2 seconds
-        User->>SS: GET /submissions/{id}
-        SS->>RD: Check Cache?
-        RD-->>SS: Return: PENDING
-        SS-->>User: Status: PENDING (Fast Response)
-    end
-
-    Note over MQ, JS: Judge xử lý xong bài nộp
-    JS->>MQ: Publish Result
-    MQ->>SS: Consume Result
-    SS->>SS: Update DB (FINISHED)
-    SS->>RD: Invalidate/Update Cache (AC/WA)
-    
-    User->>SS: GET /submissions/{id} (Final Polling)
-    SS->>RD: Check Cache HIT
-    RD-->>SS: Return: ACCEPTED
-    SS-->>User: Status: ACCEPTED (Final Result)
-```
-**Sơ đồ tổng quát:**
-
-```mermaid
-sequenceDiagram
-    participant User as Client/Frontend
-    participant GW as API Gateway
-    participant SS as Submission Service
-    participant PS as Problem Service
-    participant RD as Redis Cache
-    participant MQ as Message Queue
-    participant JS as Judge Service
-    participant S3 as Storage (S3)
+    %% Auth flow
+    User->>GW: POST /users/signup hoặc /users/login
+    GW->>US: Forward request
+    US-->>User: UserResponse / JWT Token
 
     %% Submit flow
-    User->>GW: POST /submissions
-    GW->>SS: Create Submission (PENDING)
-    SS->>RD: Cache Status = PENDING
-    SS->>MQ: Push Job (Job Queue)
+    User->>GW: POST /submissions + Bearer JWT
+    GW->>GW: Validate JWT → extract userId → X-User-Id
+    GW->>SS: Forward (X-User-Id header)
+    SS->>SS: Save DB (PENDING)
+    SS->>RD: Cache submission:{id} = PENDING
+    SS->>MQ: Push to judge.jobs
     SS-->>User: 202 Accepted (submissionId)
 
     %% Polling flow
-    Note over User, SS: Polling for result
-    loop Every 1-2s
+    loop Polling
         User->>SS: GET /submissions/{id}
         SS->>RD: Check Cache
-        RD-->>SS: Return Status (PENDING/FINISHED)
-        SS-->>User: Response (fast)
+        RD-->>SS: PENDING (fast)
+        SS-->>User: PENDING
     end
 
     %% Judge processing
-    MQ->>JS: Consume Job
-
-    alt Cache MISS (testcase)
-        JS->>PS: Get Testcase Metadata (URLs)
-        PS-->>JS: List<URLs> (Circuit Breaker)
-        JS->>S3: Download Multiple Text Files
-        JS->>JS: Save to Local Disk Cache
-    else Cache HIT
-        Note over JS: Load từ Local Disk Cache
-    end
-
-    JS->>JS: Execute in Docker Sandbox
-    JS->>MQ: Publish Result (Result Queue)
+    MQ->>JS: Consume judge.jobs
+    JS->>PS: GET /problems/internal/{id}/testcases (Circuit Breaker)
+    PS->>S3: Generate presigned URLs
+    S3-->>PS: Presigned URLs
+    PS-->>JS: List<TestCaseResponse> (inputKey, outputKey, presigned URLs)
+    JS->>S3: Download testcase files
+    S3-->>JS: Raw input/output file content
+    JS->>JS: Execute Docker Sandbox per testcase
+    JS->>MQ: Publish to judge.results
 
     %% Result handling
-    MQ->>SS: Consume Result
-    SS->>SS: Idempotency Check
-    SS->>SS: Update DB (FINISHED)
-    SS->>RD: Update Cache (AC/WA)
+    MQ->>SS: SubmissionListener consumes judge.results
+    SS->>SS: Idempotency Check + Update DB (FINISHED)
+    SS->>RD: Delete Cache (submission:{id})
 
-    %% Final polling
+    %% Final poll
     User->>SS: GET /submissions/{id}
-    SS->>RD: Check Cache HIT
-    RD-->>SS: Final Result
-    SS-->>User: ACCEPTED / WRONG ANSWER
+    SS->>RD: Cache MISS → Query DB
+    SS-->>User: FINISHED / ACCEPTED
 ```
 
 ---
@@ -237,57 +174,82 @@ sequenceDiagram
 
 ### 3.1 Uniform Contract Design (API Specifications)
 
-**A. Problem Service (Entity Service - Port 5001)**
-| Endpoint | Method | Media Type | Response Codes |
-|----------|--------|------------|----------------|
-| `/api/problems` | GET | application/json | 200 (Success) |
-| `/api/problems/{id}` | GET | application/json | 200 (Success), 404 (Not Found) |
-| `/api/problems/{id}/testcases` | GET | application/json | 200 (Internal Only), 403 (Forbidden) |
+**A. User Service (Entity Service — Port 5000)**
+| Endpoint | Method | Media Type | Response Codes | Ghi chú |
+|----------|--------|------------|----------------|---------|
+| `/users/signup` | POST | application/json | 201 (Created), 400 (Bad Request) | Tạo tài khoản mới |
+| `/users/login` | POST | application/json | 200 (OK), 401 (Unauthorized) | Trả về JWT token |
 
-**B. Submission Service (Entity Service - Port 5002)**
-| Endpoint | Method | Media Type | Response Codes |
-|----------|--------|------------|----------------|
-| `/api/submissions` | POST | application/json | 202 (Accepted), 400 (Bad Request) |
-| `/api/submissions/{id}` | GET | application/json | 200 (Polling), 404 (Not Found) |
-| `/api/submissions/internal/{id}` | PATCH | application/json | 200 (Success), 401 (Unauthorized) |
+**B. Problem Service (Entity Service — Port 5001)**
+| Endpoint | Method | Media Type | Response Codes | Ghi chú |
+|----------|--------|------------|----------------|---------|
+| `/problems` | GET | application/json | 200 (OK) | Danh sách bài toán |
+| `/problems/{id}` | GET | application/json | 200 (OK), 404 (Not Found) | Chi tiết bài toán |
+| `/problems/internal/{id}/testcases` | GET | application/json | 200 (Internal Only) | Dùng bởi Judge Service |
+
+**C. Submission Service (Entity Service — Port 5002)**
+| Endpoint | Method | Media Type | Response Codes | Ghi chú |
+|----------|--------|------------|----------------|---------|
+| `/submissions` | POST | application/json | 202 (Accepted), 400 (Bad Request) | Nộp bài, đọc X-User-Id header |
+| `/submissions/{id}` | GET | application/json | 200 (OK), 404 (Not Found) | Polling kết quả (Redis → DB) |
+
 
 ### 3.2 Service Logic Design
 
 **1. Submission Service Logic:**
-Sử dụng hai luồng xử lý bất đồng bộ riêng biệt (submission flow và result processing flow) để tách biệt việc tiếp nhận bài và cập nhật kết quả.
+
 ```mermaid
 flowchart TD
-    subgraph "Submission flow"
-        A[Receive Submit Request] --> B{Valid ?}
+    subgraph "Submission Flow (POST /submissions)"
+        A[Receive Submit Request] --> B{Valid? problemId, code, language}
         B -- No --> C[Return 400 Bad Request]
-        B -- Yes --> D[(Save to DB: PENDING)]
-        D --> E[Push Job to Queue]
-        E --> F[Return 202 Accepted]
+        B -- Yes --> D[(Save to DB: status=PENDING)]
+        D --> E[Cache submission:id = PENDING in Redis]
+        E --> F[Push Job to judge.jobs Queue]
+        F --> G[Return 202 Accepted + submissionId]
     end
 
-    subgraph "Result processing flow"
-        G[Receive Result from Queue] --> H{Idempotency Check}
-        H -- Already Finished --> I[Ignore Message]
-        H -- Is Pending --> J[(Update DB: FINISHED)]
-        J --> K[Update/Invalidate Cache]
+    subgraph "Result Processing Flow (SubmissionListener)"
+        H[Consume judge.results Queue] --> I{Idempotency Check}
+        I -- status == FINISHED --> J[Ignore duplicate message]
+        I -- status == PENDING/RUNNING --> K[(Update DB: status=FINISHED, verdict, timeUsed, memoryUsed)]
+        K --> L[Delete Redis Cache submission:id]
     end
 ```
 
-**2. Judge Service Logic (Worker):**
+**2. Judge Service Logic (JudgeJobListener + JudgeExecutionService):**
 
 ```mermaid
 flowchart TD
-    A[Consume Job from Queue] --> B{Check Local Cache?}
-    B -- Cache HIT --> G[Start Sandbox]
-    B -- Cache MISS --> C{Circuit Breaker OPEN?}
-    
-    C -- No --> E[Call Prob. SVC & Download Files]
-    E --> F[Save to Local Disk]
-    F --> G[Start Docker Sandbox]
-    
-    G --> H[Execute & Compare Results]
-    H --> I[Publish Result to Queue]
-    I --> J[Clean Resources]
+    A[Consume Job from judge.jobs] --> B[Create Workspace /tmp/judge-jobs/submissionId/]
+    B --> C[Call Problem Service: GET /internal/id/testcases]
+    C --> D{Circuit Breaker OPEN?}
+    D -- Yes --> E[Publish SE verdict to judge.results]
+    D -- No --> F[Download testcase files from MinIO]
+    F --> G[Write source file to workspace]
+    G --> H{Requires Compilation?}
+    H -- Yes --> I[docker run judge-sandbox compile]
+    I --> J{Exit code == 0?}
+    J -- No --> K[Publish CE verdict]
+    J -- Yes --> L[Run TestCases Loop]
+    H -- No --> L
+
+    subgraph "Per TestCase Loop"
+        L --> M[docker run judge-sandbox run + stat]
+        M --> N{Exit code?}
+        N -- timeout/-1 --> O[Publish TLE]
+        N -- non-zero --> P[Publish RTE]
+        N -- 0 --> Q{Check metrics}
+        Q -- TLE --> O
+        Q -- MLE --> R[Publish MLE]
+        Q -- OK --> S[Compare output.user.out vs output.expected.out]
+        S -- Mismatch --> T[Publish WA]
+        S -- Match --> U{More testcases?}
+        U -- Yes --> L
+        U -- No --> V[Publish AC]
+    end
+
+
 ```
 
 ---
