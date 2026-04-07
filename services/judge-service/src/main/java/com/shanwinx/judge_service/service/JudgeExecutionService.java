@@ -44,7 +44,7 @@ public class JudgeExecutionService {
             return result(job.getId(), Verdict.SE, 0, 0, "Unsupported language: " + job.getLanguage());
         }
 
-        if (testCaseLoader.isProblemSource() && job.getProblemId() == null) {
+        if (job.getProblemId() == null) {
             return result(job.getId(), Verdict.SE, 0, 0, "Missing problem id");
         }
 
