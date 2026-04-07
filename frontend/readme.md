@@ -2,53 +2,70 @@
 
 ## Overview
 
-This is the frontend module of the microservices system. It provides the user interface and communicates with backend services through the API Gateway.
+Giao diện người dùng cho hệ thống Online Judge. Cho phép người dùng xem danh sách bài toán, nộp bài và theo dõi kết quả chấm điểm theo thời gian thực qua cơ chế Polling.
+
+Mọi API call đều đi qua **API Gateway** (`gateway:8000`) — không gọi trực tiếp đến các service.
 
 ## Tech Stack
 
-| Component        | Choice               |
-|------------------|----------------------|
-| Framework        | *(e.g., React, Vue, Angular, Svelte, plain HTML/JS)* |
-| Styling          | *(e.g., CSS, Tailwind, Bootstrap, Material UI)*       |
-| Package Manager  | *(e.g., npm, yarn, pnpm)*                             |
-| Build Tool       | *(e.g., Vite, Webpack, esbuild)*                      |
+| Component       | Choice                    |
+|-----------------|---------------------------|
+| Framework       | React 18 + TypeScript     |
+| Build Tool      | Vite 5                    |
+| Styling         | Tailwind CSS 3            |
+| Routing         | React Router v6           |
+| Animation       | Framer Motion             |
+| Icons           | Lucide React              |
+| Package Manager | npm                       |
+| Web Server      | Nginx (production)        |
 
-## Getting Started
+## Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Landing page |
+| `/login` | Đăng nhập — gọi User Service |
+| `/signup` | Đăng ký — gọi User Service |
+| `/problems` | Danh sách bài toán — gọi Problem Service |
+| `/problems/:id` | Chi tiết bài + Code Editor + Submit |
+| `/submissions` | Lịch sử bài nộp — gọi Submission Service |
+
+## API Integration
+
+Tất cả API calls được centralize trong `src/utils/api.ts`. JWT token được lưu vào `localStorage` và tự động đính kèm vào mọi request.
+
+```
+Browser → Nginx (:80) → /api/* → Gateway (:8000) → Services
+```
+
+## Running
 
 ```bash
 # From project root
 docker compose up frontend --build
-
-# Or run locally (adapt to your stack)
-cd src/
-# npm install && npm run dev
-# yarn && yarn dev
 ```
+
+Truy cập: `http://localhost:3000`
 
 ## Project Structure
 
 ```
 frontend/
 ├── Dockerfile
+├── nginx.conf        # Serve static + proxy /api/* to gateway
 ├── readme.md
-└── src/           # Your source code goes here
+└── src/
+    ├── App.tsx
+    ├── pages/        # Login, SignUp, Problems, ProblemDetail, Submissions
+    ├── components/   # Reusable UI components
+    ├── hooks/
+    └── utils/
+        ├── api.ts    # Centralized API client
+        └── mockData.ts
 ```
 
 ## Environment Variables
 
-| Variable       | Description                | Default                  |
-|----------------|----------------------------|--------------------------|
-| `API_BASE_URL` | URL of the API Gateway     | `http://localhost:8080`  |
-
-## Build for Production
-
-```bash
-# Example:
-# npm run build
-# yarn build
-```
-
-## Notes
-
-- All API calls should go through the **API Gateway** (`gateway`), not directly to individual services.
-- Configure proxy or API base URL to point to the gateway.
+| Variable       | Description            | Default                 |
+|----------------|------------------------|-------------------------|
+| `FRONTEND_PORT`| Host port mapping      | `3000`                  |
