@@ -14,6 +14,10 @@ import org.springframework.context.annotation.Configuration;
 public class RabbitMQConfig {
 
     public static final String JOB_QUEUE = "judge.jobs";
+    public static final String JOB_RETRY_30S_QUEUE = "judge.jobs.retry.30s";
+    public static final String JOB_RETRY_2M_QUEUE = "judge.jobs.retry.2m";
+    public static final String JOB_RETRY_10M_QUEUE = "judge.jobs.retry.10m";
+    public static final String JOB_DLQ = "judge.jobs.dlq";
     public static final String RESULT_QUEUE = "judge.results";
     public static final String RESULT_DLQ = "judge.results.dlq";
     public static final String DLX_EXCHANGE = "judge.dlx";
@@ -21,6 +25,38 @@ public class RabbitMQConfig {
     @Bean
     public Queue jobQueue() {
         return new Queue(JOB_QUEUE, true);
+    }
+
+    @Bean
+    public Queue jobRetry30sQueue() {
+        return QueueBuilder.durable(JOB_RETRY_30S_QUEUE)
+                .withArgument("x-message-ttl", 30_000)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", JOB_QUEUE)
+                .build();
+    }
+
+    @Bean
+    public Queue jobRetry2mQueue() {
+        return QueueBuilder.durable(JOB_RETRY_2M_QUEUE)
+                .withArgument("x-message-ttl", 120_000)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", JOB_QUEUE)
+                .build();
+    }
+
+    @Bean
+    public Queue jobRetry10mQueue() {
+        return QueueBuilder.durable(JOB_RETRY_10M_QUEUE)
+                .withArgument("x-message-ttl", 600_000)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", JOB_QUEUE)
+                .build();
+    }
+
+    @Bean
+    public Queue jobDlq() {
+        return new Queue(JOB_DLQ, true);
     }
 
     @Bean
