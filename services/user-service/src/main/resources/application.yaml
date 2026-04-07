@@ -30,3 +30,15 @@ eureka:
 
 jwt:
   secret: ${JWT_SECRET:default-secret-change-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: user-service

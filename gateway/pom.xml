@@ -50,6 +50,12 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- Prometheus metrics -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+
 		<!-- JWT — parse & validate tokens issued by user-service -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
