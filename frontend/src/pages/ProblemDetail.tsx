@@ -1,248 +1,165 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  AlertCircle } from
-'lucide-react';
+import { ArrowLeft, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { CodeEditor } from '../components/CodeEditor';
 import { StatusBadge } from '../components/StatusBadge';
-import { MOCK_PROBLEMS, Status } from '../utils/mockData';
-export function ProblemDetail() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const problem = MOCK_PROBLEMS.find((p) => p.id === id);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<{
-    status: Status;
-    message: string;
-    time?: string;
-    mem?: string;
-  } | null>(null);
-  if (!problem) {
-    return (
-      <div className="p-8 text-center">
-        <h2 className="text-2xl font-bold text-slate-900">Problem not found</h2>
-        <button
-          onClick={() => navigate('/problems')}
-          className="mt-4 text-primary-dark hover:underline">
-          
-          Back to problems
-        </button>
-      </div>);
+import { problemApi, submissionApi, Problem, Submission, getToken } from '../utils/api';
 
-  }
-  const handleRun = (code: string, lang: string) => {
-    setIsRunning(true);
-    setResult(null);
-    setTimeout(() => {
-      setIsRunning(false);
-      setResult({
-        status: 'Accepted',
-        message: 'Sample test cases passed!',
-        time: '12 ms',
-        mem: '14.2 MB'
-      });
-    }, 1500);
-  };
-  const handleSubmit = (code: string, lang: string) => {
+export function ProblemDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<Submission | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    problemApi.getById(id)
+      .then(setProblem)
+      .catch(() => setProblem(null))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  // Stop polling when component unmounts
+  useEffect(() => {
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, []);
+
+  const handleSubmit = async (code: string, lang: string) => {
     setIsSubmitting(true);
     setResult(null);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      // Randomize result for demo purposes
-      const statuses: Status[] = [
-      'Accepted',
-      'Wrong Answer',
-      'Time Limit Exceeded'];
 
-      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
-      if (randomStatus === 'Accepted') {
-        setResult({
-          status: randomStatus,
-          message: 'All test cases passed!',
-          time: '45 ms',
-          mem: '16.4 MB'
-        });
-      } else if (randomStatus === 'Wrong Answer') {
-        setResult({
-          status: randomStatus,
-          message: 'Failed at test case 14/52.',
-          time: 'N/A',
-          mem: 'N/A'
-        });
-      } else {
-        setResult({
-          status: randomStatus,
-          message: 'Time limit exceeded on test case 42.',
-          time: '> 2000 ms',
-          mem: '15.1 MB'
-        });
-      }
-    }, 2000);
-  };
-  const getResultIcon = (status: Status) => {
-    switch (status) {
-      case 'Accepted':
-        return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
-      case 'Wrong Answer':
-        return <XCircle className="w-5 h-5 text-red-500" />;
-      case 'Time Limit Exceeded':
-        return <Clock className="w-5 h-5 text-amber-500" />;
-      default:
-        return <AlertCircle className="w-5 h-5 text-slate-500" />;
+    // Get user_id from token (decode JWT payload)
+    const token = getToken();
+    let userId = 'anonymous';
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        userId = payload.sub || payload.userId || 'anonymous';
+      } catch {}
+    }
+
+    try {
+      const submission = await submissionApi.submit({
+        problem_id: id!,
+        user_id: userId,
+        code,
+        language: lang,
+      });
+
+      setResult(submission);
+
+      // Start polling every 1 seconds
+      pollingRef.current = setInterval(async () => {
+        const updated = await submissionApi.getById(submission.id);
+        setResult(updated);
+        if (updated.status === 'FINISHED') {
+          clearInterval(pollingRef.current!);
+          setIsSubmitting(false);
+        }
+      }, 1000);
+    } catch (e: any) {
+      setIsSubmitting(false);
+      alert(`Submit failed: ${e.message}`);
     }
   };
+
+  const handleRun = (code: string, lang: string) => {
+    // Run sample is not yet implemented — show placeholder
+    alert('Run sample feature coming soon!');
+  };
+
+  if (loading) return <div className="p-8 text-center text-slate-500">Loading...</div>;
+  if (!problem) return (
+    <div className="p-8 text-center">
+      <h2 className="text-2xl font-bold text-slate-900">Problem not found</h2>
+      <button onClick={() => navigate('/problems')} className="mt-4 text-primary-dark hover:underline">
+        Back to problems
+      </button>
+    </div>
+  );
+
+  const getVerdictColor = (verdict: string | null) => {
+    if (verdict === 'AC') return 'text-emerald-600';
+    if (verdict === 'WA') return 'text-red-600';
+    return 'text-amber-600';
+  };
+
+  const getVerdictIcon = (verdict: string | null) => {
+    if (verdict === 'AC') return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
+    if (verdict === 'WA') return <XCircle className="w-5 h-5 text-red-500" />;
+    if (verdict === 'TLE') return <Clock className="w-5 h-5 text-amber-500" />;
+    return <AlertCircle className="w-5 h-5 text-slate-500" />;
+  };
+
   return (
     <div className="flex flex-col lg:flex-row h-full w-full bg-slate-50 overflow-hidden">
-      {/* Left Panel: Problem Description */}
+      {/* Left Panel */}
       <div className="w-full lg:w-5/12 h-1/2 lg:h-full flex flex-col border-b lg:border-b-0 lg:border-r border-slate-200 bg-white">
         <div className="p-4 border-b border-slate-200 flex items-center space-x-3 bg-white sticky top-0 z-10">
-          <button
-            onClick={() => navigate('/problems')}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors">
-            
+          <button onClick={() => navigate('/problems')} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-lg font-bold text-slate-900 truncate">
-            {problem.id}. {problem.title}
-          </h1>
+          <h1 className="text-lg font-bold text-slate-900 truncate">{problem.title}</h1>
         </div>
-
         <div className="flex-1 overflow-y-auto p-6">
           <div className="flex items-center space-x-4 mb-6">
-            <StatusBadge difficulty={problem.difficulty} />
-            <span className="text-sm text-slate-500">
-              Acceptance: {problem.acceptance}
-            </span>
+            <StatusBadge difficulty={problem.difficulty as any} />
+            <span className="text-sm text-slate-500">Time: {problem.time_limit}ms | Memory: {problem.memory_limit}KB</span>
           </div>
-
-          <div className="prose prose-slate prose-sm max-w-none">
-            <div className="whitespace-pre-wrap text-slate-700 leading-relaxed mb-8">
-              {problem.description}
-            </div>
-
-            {problem.examples.length > 0 &&
-            <div className="space-y-6 mb-8">
-                {problem.examples.map((ex, idx) =>
-              <div key={idx}>
-                    <p className="font-semibold text-slate-900 mb-2">
-                      Example {idx + 1}:
-                    </p>
-                    <div className="bg-slate-50 rounded-md p-4 border border-slate-200 font-mono text-sm text-slate-800">
-                      <div>
-                        <span className="font-semibold text-slate-500 select-none">
-                          Input:{' '}
-                        </span>
-                        {ex.input}
-                      </div>
-                      <div className="mt-1">
-                        <span className="font-semibold text-slate-500 select-none">
-                          Output:{' '}
-                        </span>
-                        {ex.output}
-                      </div>
-                      {ex.explanation &&
-                  <div className="mt-1">
-                          <span className="font-semibold text-slate-500 select-none">
-                            Explanation:{' '}
-                          </span>
-                          {ex.explanation}
-                        </div>
-                  }
-                    </div>
-                  </div>
-              )}
-              </div>
-            }
-
-            {problem.constraints.length > 0 &&
-            <div>
-                <p className="font-semibold text-slate-900 mb-2">
-                  Constraints:
-                </p>
-                <ul className="list-disc pl-5 space-y-1 text-slate-700 bg-slate-50 p-4 rounded-md border border-slate-200">
-                  {problem.constraints.map((c, idx) =>
-                <li key={idx} className="font-mono text-sm">
-                      {c}
-                    </li>
-                )}
-                </ul>
-              </div>
-            }
+          <div className="whitespace-pre-wrap text-slate-700 leading-relaxed">
+            {problem.description}
           </div>
         </div>
       </div>
 
-      {/* Right Panel: Code Editor & Results */}
+      {/* Right Panel */}
       <div className="w-full lg:w-7/12 h-1/2 lg:h-full flex flex-col bg-slate-100 p-4 space-y-4">
         <div className="flex-1 min-h-[300px]">
-          <CodeEditor
-            onRun={handleRun}
-            onSubmit={handleSubmit}
-            isRunning={isRunning}
-            isSubmitting={isSubmitting} />
-          
+          <CodeEditor onRun={handleRun} onSubmit={handleSubmit} isRunning={false} isSubmitting={isSubmitting} />
         </div>
 
-        {/* Results Area */}
+        {/* Results */}
         <div className="h-48 bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700 flex items-center">
+          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700">
             Test Results
           </div>
           <div className="flex-1 p-4 overflow-y-auto">
-            {!result && !isRunning && !isSubmitting &&
-            <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                Run your code or submit to see results here.
+            {!result && !isSubmitting && (
+              <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+                Submit to see results here.
               </div>
-            }
-
-            {(isRunning || isSubmitting) &&
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-3">
+            )}
+            {isSubmitting && result?.status !== 'FINISHED' && (
+              <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-3">
                 <div className="w-6 h-6 border-2 border-primary-dark border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium">
-                  {isRunning ? 'Running code...' : 'Judging submission...'}
-                </span>
+                <span className="text-sm font-medium">Judging... ({result?.status ?? 'PENDING'})</span>
               </div>
-            }
-
-            {result && !isRunning && !isSubmitting &&
-            <div className="space-y-4">
+            )}
+            {result && result.status === 'FINISHED' && (
+              <div className="space-y-4">
                 <div className="flex items-center space-x-2">
-                  {getResultIcon(result.status)}
-                  <h3
-                  className={`text-lg font-bold ${result.status === 'Accepted' ? 'text-emerald-600' : result.status === 'Wrong Answer' ? 'text-red-600' : 'text-amber-600'}`}>
-                  
-                    {result.status}
+                  {getVerdictIcon(result.verdict)}
+                  <h3 className={`text-lg font-bold ${getVerdictColor(result.verdict)}`}>
+                    {result.verdict ?? 'Unknown'}
                   </h3>
                 </div>
-                <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100">
-                  {result.message}
-                </p>
-                {result.time && result.mem &&
-              <div className="flex space-x-6 text-sm">
-                    <div>
-                      <span className="text-slate-500">Runtime:</span>
-                      <span className="ml-2 font-mono font-medium text-slate-900">
-                        {result.time}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Memory:</span>
-                      <span className="ml-2 font-mono font-medium text-slate-900">
-                        {result.mem}
-                      </span>
-                    </div>
-                  </div>
-              }
+                {result.error_details && (
+                  <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 font-mono">
+                    {result.error_details}
+                  </p>
+                )}
+                <div className="flex space-x-6 text-sm">
+                  <div><span className="text-slate-500">Runtime:</span><span className="ml-2 font-mono font-medium">{result.time_used ?? 'N/A'} ms</span></div>
+                  <div><span className="text-slate-500">Memory:</span><span className="ml-2 font-mono font-medium">{result.memory_used ?? 'N/A'} KB</span></div>
+                </div>
               </div>
-            }
+            )}
           </div>
         </div>
       </div>
-    </div>);
-
+    </div>
+  );
 }
