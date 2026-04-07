@@ -34,10 +34,6 @@ judge:
     host-root: ${JUDGE_WORKSPACE_HOST_ROOT:}
     cleanup-enabled: false
 
-services:
-  problem-service:
-    url: ${PROBLEM_SERVICE_URL:http://problem-service:5001}
-
 resilience4j:
   circuitbreaker:
     instances:
