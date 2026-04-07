@@ -1,38 +1,44 @@
-# Observability Stack — PLG (Promtail + Loki + Grafana)
+# Observability Stack — PLG + Prometheus
 
-Hệ thống log tập trung cho toàn bộ microservices. Không cần sửa code service nào — tự động thu thập stdout của tất cả container.
+Hệ thống giám sát tập trung: log tập trung (PLG) + metrics (Prometheus + Grafana).
 
 ## Thành phần
 
 | Service | Vai trò | Port |
 |---|---|---|
-| **Promtail** | Thu thập log từ Docker container, gắn label, đẩy lên Loki | - |
+| **Promtail** | Thu thập log từ Docker container, đẩy lên Loki | - |
 | **Loki** | Lưu trữ và index log theo label | 3100 |
-| **Grafana** | UI query và visualize log | 3001 |
+| **Prometheus** | Scrape metrics từ `/actuator/prometheus` mỗi 15s | 9090 |
+| **RabbitMQ Exporter** | Export RabbitMQ queue metrics sang Prometheus | 9419 |
+| **Grafana** | UI query log (Loki) và vẽ biểu đồ metrics (Prometheus) | 3001 |
 
 ## Cấu trúc thư mục
 
 ```
 observability/
-├── loki-config.yaml                        # Cấu hình Loki: nơi lưu data, schema, giới hạn
-├── promtail-config.yaml                    # Cấu hình Promtail: scrape Docker logs, push lên Loki
+├── loki-config.yaml                          # Cấu hình Loki
+├── promtail-config.yaml                      # Scrape Docker logs → Loki
+├── prometheus.yml                            # Scrape targets: 5 services + RabbitMQ
 └── grafana/
     └── provisioning/
-        └── datasources/
-            └── loki.yaml                   # Auto-provision Loki làm datasource mặc định
+        ├── datasources/
+        │   ├── loki.yaml                     # Auto-provision Loki datasource
+        │   └── prometheus.yaml               # Auto-provision Prometheus datasource
+        └── dashboards/
+            ├── dashboards.yaml               # Khai báo folder dashboard
+            └── microservices.json            # Dashboard: RabbitMQ + HTTP + JVM + DB
 ```
 
 ## Truy cập
 
-```
-http://localhost:3001
-```
+| URL | Mô tả |
+|---|---|
+| `http://localhost:3001` | Grafana UI (admin/admin) |
+| `http://localhost:9090` | Prometheus UI |
+| `http://localhost:3100` | Loki API |
+| `http://localhost:9419/metrics` | RabbitMQ raw metrics |
 
-Đăng nhập bằng `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` trong `.env` (mặc định: `admin/admin`).
-
-## Cách xem log
-
-Vào **Explore → Loki**, dùng LogQL:
+## Xem log (Grafana → Explore → Loki)
 
 ```logql
 # Tất cả service (bỏ qua observability stack)
@@ -40,10 +46,7 @@ Vào **Explore → Loki**, dùng LogQL:
 
 # Theo service cụ thể
 {service="submission-service"}
-{service="problem-service"}
 {service="judge-service"}
-{service="user-service"}
-{service="gateway"}
 
 # Chỉ lỗi
 {container=~".+", container!~".*(loki|grafana|promtail).*"} |= "ERROR"
@@ -52,14 +55,18 @@ Vào **Explore → Loki**, dùng LogQL:
 {container=~".+"} |= "your-submission-id-here"
 ```
 
+## Xem metrics (Grafana → Dashboards → Microservices Overview)
+
+Dashboard tự động load, gồm 4 section:
+- RabbitMQ queue size, unacked messages
+- HTTP request rate, error rate, P99 latency
+- JVM heap memory, threads, GC
+- DB connection pool
+
+Xem file `grafana-dashboard-guide.md` ở root project để hiểu từng panel.
+
 ## Khởi động
 
-Chạy cùng toàn bộ hệ thống:
 ```bash
 docker compose up --build
-```
-
-Hoặc chỉ riêng observability stack:
-```bash
-docker compose up loki promtail grafana
 ```
