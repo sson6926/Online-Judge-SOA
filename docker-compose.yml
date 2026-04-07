@@ -169,6 +169,46 @@ services:
     networks:
       - app-network
 
+  # ─── Observability ───────────────────────────────
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/config.yaml
+      - loki-data:/loki
+    networks:
+      - app-network
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    volumes:
+      - ./observability/promtail-config.yaml:/etc/promtail/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - app-network
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - app-network
+
   # ─── Infrastructure ──────────────────────────────
   redis:
     image: redis:7-alpine
@@ -198,3 +238,5 @@ volumes:
   db-submission-data:
   minio-data:
   judge-workspaces:
+  loki-data:
+  grafana-data:
