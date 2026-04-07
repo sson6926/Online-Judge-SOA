@@ -55,7 +55,6 @@ jobs:
             return 1
           }
 
-          retry http://localhost:8761/health
           retry http://localhost:5000/health
           retry http://localhost:5001/health
           retry http://localhost:5002/health
