@@ -9,12 +9,14 @@ import com.shawnix.problem.repository.TestCaseRepository;
 import com.shawnix.problem.exception.ResourceNotFoundException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProblemServiceImpl implements ProblemService {
@@ -25,13 +27,19 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     public List<Problem> getAllProblems() {
-        return problemRepository.findAll();
+        List<Problem> problems = problemRepository.findAll();
+        log.info("Lấy danh sách problems: {} bài", problems.size());
+        return problems;
     }
 
     @Override
     public Problem getProblemById(UUID id) {
+        log.info("Lấy problem ID: {}", id);
         return problemRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Problem not found: " + id));
+                .orElseThrow(() -> {
+                    log.warn("Không tìm thấy problem ID: {}", id);
+                    return new ResourceNotFoundException("Problem not found: " + id);
+                });
     }
 
     @Override
@@ -41,6 +49,7 @@ public class ProblemServiceImpl implements ProblemService {
         if (request.getDifficulty() == null)
             throw new IllegalArgumentException("difficulty is required");
 
+        log.info("Tạo problem mới: title='{}', difficulty={}", request.getTitle(), request.getDifficulty());
         Problem problem = Problem.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())
@@ -48,22 +57,33 @@ public class ProblemServiceImpl implements ProblemService {
                 .memoryLimit(request.getMemoryLimit())
                 .difficulty(request.getDifficulty())
                 .build();
-        return problemRepository.save(problem);
+        Problem saved = problemRepository.save(problem);
+        log.info("Tạo problem thành công: ID={}", saved.getId());
+        return saved;
     }
 
     @Override
     @Transactional
     public void deleteProblem(UUID id) {
-        if (!problemRepository.existsById(id))
+        if (!problemRepository.existsById(id)) {
+            log.warn("Xóa thất bại - không tìm thấy problem ID: {}", id);
             throw new ResourceNotFoundException("Problem not found: " + id);
-        // Xóa tất cả testcase files trên MinIO trước
+        }
         List<TestCase> testCases = testCaseRepository.findByProblemId(id);
+        log.info("Xóa problem ID: {} kèm {} testcase(s)", id, testCases.size());
         for (TestCase tc : testCases) {
-            if (tc.getInputKey() != null) minioService.delete(tc.getInputKey());
-            if (tc.getOutputKey() != null) minioService.delete(tc.getOutputKey());
+            if (tc.getInputKey() != null) {
+                minioService.delete(tc.getInputKey());
+                log.debug("Đã xóa file MinIO: {}", tc.getInputKey());
+            }
+            if (tc.getOutputKey() != null) {
+                minioService.delete(tc.getOutputKey());
+                log.debug("Đã xóa file MinIO: {}", tc.getOutputKey());
+            }
         }
         testCaseRepository.deleteAll(testCases);
         problemRepository.deleteById(id);
+        log.info("Xóa problem ID: {} thành công", id);
     }
 
     @Override
@@ -73,13 +93,19 @@ public class ProblemServiceImpl implements ProblemService {
         if (outputFile == null || outputFile.isEmpty())
             throw new IllegalArgumentException("output file is required");
 
+        log.info("Thêm testcase cho problem ID: {}", problemId);
         Problem problem = problemRepository.findById(problemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Problem not found: " + problemId));
+                .orElseThrow(() -> {
+                    log.warn("Không tìm thấy problem ID: {} khi thêm testcase", problemId);
+                    return new ResourceNotFoundException("Problem not found: " + problemId);
+                });
 
         String inputKey = "problems/" + problemId + "/in_" + UUID.randomUUID() + ".txt";
         String outputKey = "problems/" + problemId + "/out_" + UUID.randomUUID() + ".txt";
 
+        log.debug("Upload input → MinIO key: {}", inputKey);
         minioService.upload(inputKey, inputFile);
+        log.debug("Upload output → MinIO key: {}", outputKey);
         minioService.upload(outputKey, outputFile);
 
         TestCase tc = TestCase.builder()
@@ -88,25 +114,30 @@ public class ProblemServiceImpl implements ProblemService {
                 .outputKey(outputKey)
                 .build();
         tc = testCaseRepository.save(tc);
-
+        log.info("Thêm testcase thành công: ID={} cho problem ID={}", tc.getId(), problemId);
         return toResponse(tc);
     }
 
     @Override
     @Transactional
     public void deleteTestCase(UUID testCaseId) {
+        log.info("Xóa testcase ID: {}", testCaseId);
         TestCase tc = testCaseRepository.findById(testCaseId)
-                .orElseThrow(() -> new ResourceNotFoundException("TestCase not found: " + testCaseId));
+                .orElseThrow(() -> {
+                    log.warn("Không tìm thấy testcase ID: {}", testCaseId);
+                    return new ResourceNotFoundException("TestCase not found: " + testCaseId);
+                });
         if (tc.getInputKey() != null) minioService.delete(tc.getInputKey());
         if (tc.getOutputKey() != null) minioService.delete(tc.getOutputKey());
         testCaseRepository.delete(tc);
+        log.info("Xóa testcase ID: {} thành công", testCaseId);
     }
 
     @Override
     public List<TestCaseResponse> getTestCasesByProblemId(UUID problemId) {
-        return testCaseRepository.findByProblemId(problemId).stream()
-                .map(this::toResponse)
-                .toList();
+        List<TestCase> testCases = testCaseRepository.findByProblemId(problemId);
+        log.info("[INTERNAL] Judge lấy {} testcase(s) cho problem ID: {}", testCases.size(), problemId);
+        return testCases.stream().map(this::toResponse).toList();
     }
 
     private TestCaseResponse toResponse(TestCase tc) {
