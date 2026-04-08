@@ -221,34 +221,54 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Consume Job from judge.jobs] --> B[Create Workspace /tmp/judge-jobs/submissionId/]
-    B --> C[Call Problem Service: GET /internal/id/testcases]
-    C --> D{Circuit Breaker OPEN?}
-    D -- Yes --> E[Publish SE verdict to judge.results]
-    D -- No --> F[Download testcase files from MinIO]
-    F --> G[Write source file to workspace]
-    G --> H{Requires Compilation?}
-    H -- Yes --> I[docker run judge-sandbox compile]
-    I --> J{Exit code == 0?}
-    J -- No --> K[Publish CE verdict]
-    J -- Yes --> L[Run TestCases Loop]
-    H -- No --> L
+    A[Consume Job: judge.jobs] --> B[Create Workspace]
 
-    subgraph "Per TestCase Loop"
-        L --> M[docker run judge-sandbox run + stat]
-        M --> N{Exit code?}
-        N -- timeout/-1 --> O[Publish TLE]
-        N -- non-zero --> P[Publish RTE]
-        N -- 0 --> Q{Check metrics}
-        Q -- TLE --> O
-        Q -- MLE --> R[Publish MLE]
-        Q -- OK --> S[Compare output.user.out vs output.expected.out]
-        S -- Mismatch --> T[Publish WA]
-        S -- Match --> U{More testcases?}
-        U -- Yes --> L
-        U -- No --> V[Publish AC]
+    B --> C[Fetch Testcases Metadata - Problem Service]
+    C --> D{Circuit Breaker Open?}
+
+    D -- Yes --> R1[Trigger Retry]
+    D -- No --> E[Download Testcases from MinIO]
+
+    E --> F[Write Source Code]
+    F --> G{Needs Compilation?}
+
+    G -- Yes --> H[Compile in Docker Sandbox]
+    H --> I{Compile Success?}
+
+    I -- No --> CE[Publish CE Result]
+    I -- Yes --> L[Run Testcases]
+
+    G -- No --> L
+
+    subgraph "Per Testcase Execution"
+        L --> M[Run in Sandbox + Collect Stats]
+        M --> N{Exit Code}
+
+        N -- Timeout --> TLE[Publish TLE]
+        N -- Runtime Error --> RTE[Publish RTE]
+        N -- OK --> O{Check Limits}
+
+        O -- TLE --> TLE
+        O -- MLE --> MLE[Publish MLE]
+        O -- OK --> P[Compare Output]
+
+        P -- Wrong --> WA[Publish WA]
+        P -- Correct --> Q{More Testcases?}
+
+        Q -- Yes --> L
+        Q -- No --> AC[Publish AC]
     end
 
+    R1 --> R2{Retry Count}
+
+    R2 -- 1 --> Q1[Retry Queue 30s]
+    R2 -- 2 --> Q2[Retry Queue 2m]
+    R2 -- 3 --> Q3[Retry Queue 10m]
+    R2 -- >3 --> DLQ[Dead Letter Queue]
+
+    Q1 --> A
+    Q2 --> A
+    Q3 --> A
 
 ```
 
