@@ -59,7 +59,7 @@ Downstream services dùng các header này mà không cần decode JWT lại.
 ## Running
 
 ```bash
-# Từ thư mục mid-project-119695456/
+# Từ thư mục gốc của repository/
 docker compose up --build gateway
 ```
 

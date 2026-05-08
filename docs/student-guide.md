@@ -119,7 +119,7 @@ git push
 
 ### Phase 1: Analysis & Design
 
-1. Read `GETTING_STARTED.md` in the repo to understand the project structure
+1. Read [`GETTING_STARTED.md`](../GETTING_STARTED.md) in the repo to understand the project structure
 2. Choose **one** analysis approach:
    - **Approach 1 — SOA (Erl)**: Complete `docs/analysis-and-design.md`
    - **Approach 2 — Strategic DDD**: Complete `docs/analysis-and-design-ddd.md`
@@ -214,7 +214,7 @@ git push
 ## 📚 References
 
 - [Starter Template Repo](https://github.com/hungdn1701/microservices-assignment-starter)
-- [GETTING_STARTED.md](https://github.com/hungdn1701/microservices-assignment-starter/blob/main/GETTING_STARTED.md) — Detailed project guide inside the repo
+- [GETTING_STARTED.md](../GETTING_STARTED.md) — Detailed project guide inside the repo
 - [Docker Compose Docs](https://docs.docker.com/compose/)
 - [OpenAPI 3.0 Specification](https://swagger.io/specification/)
 

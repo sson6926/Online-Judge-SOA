@@ -88,7 +88,7 @@ graph TD
 | **Grafana** | Dashboard giám sát & cảnh báo | Grafana | 3001 |
 | **Loki + Promtail** | Tập trung logs từ tất cả container | Grafana Loki | 3100 |
 
-> Tài liệu đầy đủ: [`docs/architecture.md`](mid-project-119695456/docs/architecture.md) · [`docs/analysis-and-design.md`](mid-project-119695456/docs/analysis-and-design.md)
+> Tài liệu đầy đủ: [`docs/architecture.md`](docs/architecture.md) · [`docs/analysis-and-design.md`](docs/analysis-and-design.md)
 
 
 
@@ -107,7 +107,7 @@ graph TD
 ```bash
 # 1. Clone repository
 git clone <your-repo-url>
-cd mid-project-119695456
+cd <repo-folder>
 
 # 2. Cấu hình environment
 cp .env.example .env
@@ -144,17 +144,17 @@ curl http://localhost:5003/health          # Judge Service
 
 | Service | OpenAPI Spec |
 |---------|-------------|
-| Gateway | [`docs/api-specs/gateway.yaml`](mid-project-119695456/docs/api-specs/gateway.yaml) |
-| Problem Service | [`docs/api-specs/problem-service.yaml`](mid-project-119695456/docs/api-specs/problem-service.yaml) |
-| Submission Service | [`docs/api-specs/submission-service.yaml`](mid-project-119695456/docs/api-specs/submission-service.yaml) |
-| User Service | [`docs/api-specs/user-service.yaml`](mid-project-119695456/docs/api-specs/user-service.yaml) |
+| Gateway | [`docs/api-specs/gateway.yaml`](docs/api-specs/gateway.yaml) |
+| Problem Service | [`docs/api-specs/problem-service.yaml`](docs/api-specs/problem-service.yaml) |
+| Submission Service | [`docs/api-specs/submission-service.yaml`](docs/api-specs/submission-service.yaml) |
+| User Service | [`docs/api-specs/user-service.yaml`](docs/api-specs/user-service.yaml) |
 
 
 
 ## Cấu Trúc Thư Mục
 
 ```
-mid-project-119695456/
+./
 ├── docker-compose.yml
 ├── .env.example
 ├── build-sandbox.sh          # Build Docker sandbox image
